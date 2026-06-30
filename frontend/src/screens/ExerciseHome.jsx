@@ -1,13 +1,16 @@
 import { useNavigate } from 'react-router-dom'
 import { exercise, patternLabel } from '../dummy.js'
+import { useProfileOrFallback } from '../state/ProfileContext.jsx'
 
 /* 운동 홈 — 오늘 할 운동(스쿼트) 안내 + 시작.
    다음: 카메라 가드 */
 export default function ExerciseHome() {
   const navigate = useNavigate()
 
-  // 더미: 관찰 프로필에서 넘어온다고 가정한 watch_patterns
-  const watchPatterns = ['lr_imbalance', 'instability', 'load_shift']
+  // 온보딩에서 만든 관찰 프로필을 전역에서 읽는다 (없으면 폴백)
+  const profile = useProfileOrFallback()
+  const watchPatterns = profile.watch_patterns
+  const focusAreas = profile.focus_areas
 
   return (
     <div className="screen">
@@ -22,7 +25,19 @@ export default function ExerciseHome() {
           </p>
         </div>
 
+        {/* 온보딩에서 만든 집중 관찰 부위 */}
         <h3 className="field__label" style={{ marginTop: 8 }}>
+          오늘 집중 관찰 부위
+        </h3>
+        <div className="tags">
+          {focusAreas.map((fa) => (
+            <span className="tag" key={fa.area}>
+              {fa.area}
+            </span>
+          ))}
+        </div>
+
+        <h3 className="field__label" style={{ marginTop: 16 }}>
           오늘 이 패턴들을 살펴봐요
         </h3>
         <div className="tags">

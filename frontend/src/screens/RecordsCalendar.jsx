@@ -1,9 +1,11 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { dummySessions, sessionDates, fmtDuration } from '../dummy.js'
+import { fmtDuration } from '../dummy.js'
+import { useSessions } from '../state/SessionContext.jsx'
 
 /* 기록 캘린더 — 운동한 날에 마커, 날짜 클릭 시 날짜별 상세로 이동.
-   아래에는 최근 세션 리스트도 함께 보여준다. */
+   아래에는 최근 세션 리스트도 함께 보여준다.
+   세션은 SessionContext(localStorage)에서 읽는다 — 실제 운동 기록이 반영됨. */
 const DOW = ['일', '월', '화', '수', '목', '금', '토']
 
 function ymd(y, m, d) {
@@ -12,8 +14,13 @@ function ymd(y, m, d) {
 
 export default function RecordsCalendar() {
   const navigate = useNavigate()
-  // 더미 데이터가 2026-06 이므로 그 달을 기본 표시
-  const [cursor, setCursor] = useState({ year: 2026, month: 5 }) // month 0-based
+  const { sessions, sessionDates } = useSessions()
+  // 기본은 이번 달 표시
+  const now = new Date()
+  const [cursor, setCursor] = useState({
+    year: now.getFullYear(),
+    month: now.getMonth(), // 0-based
+  })
 
   const { year, month } = cursor
   const first = new Date(year, month, 1)
@@ -29,7 +36,10 @@ export default function RecordsCalendar() {
     setCursor({ year: next.getFullYear(), month: next.getMonth() })
   }
 
-  const sessions = [...dummySessions].sort((a, b) => b.date.localeCompare(a.date))
+  // 최근 세션 리스트: 최신순
+  const recent = [...sessions].sort((a, b) =>
+    b.session_id.localeCompare(a.session_id),
+  )
 
   return (
     <div className="screen">
@@ -75,10 +85,12 @@ export default function RecordsCalendar() {
         </div>
 
         <p className="report-section-title">최근 세션</p>
-        {sessions.length === 0 ? (
-          <div className="detail-empty">아직 운동 기록이 없어요.</div>
+        {recent.length === 0 ? (
+          <div className="detail-empty">
+            아직 운동 기록이 없어요. 운동을 마치면 여기에 쌓여요.
+          </div>
         ) : (
-          sessions.map((s) => (
+          recent.map((s) => (
             <button
               key={s.session_id}
               className="rec-row"

@@ -1,6 +1,7 @@
 import { useNavigate, useParams } from 'react-router-dom'
 import FeedbackCard from '../components/FeedbackCard.jsx'
-import { sessionByDate, fmtDuration } from '../dummy.js'
+import { fmtDuration } from '../dummy.js'
+import { useSessions } from '../state/SessionContext.jsx'
 
 /* 날짜별 피드백 상세 — 캘린더/리스트에서 선택한 날짜의 세션 리포트.
    URL: /app/records/:date (YYYY-MM-DD)
@@ -8,6 +9,7 @@ import { sessionByDate, fmtDuration } from '../dummy.js'
 export default function SessionDetail() {
   const navigate = useNavigate()
   const { date } = useParams()
+  const { sessionByDate } = useSessions()
   const session = sessionByDate(date)
 
   return (

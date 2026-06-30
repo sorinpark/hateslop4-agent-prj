@@ -5,6 +5,7 @@ import { useNavigate, useLocation, Outlet } from 'react-router-dom'
 const TABS = [
   { to: '/app/exercise', label: '운동', icon: '🏋' },
   { to: '/app/records', label: '기록', icon: '🗓' },
+  { to: '/app/profile', label: '프로필', icon: '👤' },
 ]
 
 export default function TabLayout() {

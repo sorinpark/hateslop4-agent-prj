@@ -1,3 +1,4 @@
+import { useEffect, useMemo } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import {
   makeDummyProfile,
@@ -5,20 +6,32 @@ import {
   categoryLabel,
   sideLabel,
 } from '../dummy.js'
+import { useProfile } from '../state/ProfileContext.jsx'
 
 /* 관찰 프로필 — schemas.ObservationProfile 을 받아 표시한다.
    필드: user_id / injuries / focus_areas[{area,category,reason}]
          / watch_patterns / disclaimer
-   지금은 API 대신 더미 프로필 사용 (입력된 injuries 만 끼워 넣음). */
+   지금은 API 대신 더미 프로필 사용 (입력된 injuries 만 끼워 넣음).
+   생성된 프로필은 전역 Context 에 저장 -> 운동/리포트가 같은 프로필 참조. */
 export default function ObservationProfile() {
   const navigate = useNavigate()
   const location = useLocation()
+  const { setProfile } = useProfile()
 
   // 부상 입력 화면에서 넘어온 injuries (없으면 데모 기본값)
-  const injuries = location.state?.injuries ?? [
-    { part: '발목', side: 'right', condition: '족저근막염', discomfort: 3 },
-  ]
-  const profile = makeDummyProfile(injuries)
+  const stateInjuries = location.state?.injuries
+  // injuries 가 바뀔 때만 프로필 재생성 (실제 연동 시 POST /profile 응답으로 교체)
+  const profile = useMemo(() => {
+    const injuries = stateInjuries ?? [
+      { part: '발목', side: 'right', condition: '족저근막염', discomfort: 3 },
+    ]
+    return makeDummyProfile(injuries)
+  }, [stateInjuries])
+
+  // 확정된 프로필을 전역에 올린다
+  useEffect(() => {
+    setProfile(profile)
+  }, [profile, setProfile])
 
   return (
     <div className="screen">

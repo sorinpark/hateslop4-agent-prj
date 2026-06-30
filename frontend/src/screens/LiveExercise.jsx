@@ -1,13 +1,15 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { dummyFeedbackStream, makeDummySession } from '../dummy.js'
+import { dummyFeedbackStream, exercise } from '../dummy.js'
 import FeedbackCard from '../components/FeedbackCard.jsx'
+import { useSessions } from '../state/SessionContext.jsx'
 
 /* 실시간 운동 — 타이머 / 일시정지 / 피드백 스트림 / 종료 팝업.
    피드백은 schemas.FeedbackResponse 더미를 5~10초 윈도우처럼 순차 표시.
    실제로는 vision -> POST /feedback -> 응답을 이 자리에 흘려보낸다. */
 export default function LiveExercise() {
   const navigate = useNavigate()
+  const { addSession } = useSessions()
   const [elapsed, setElapsed] = useState(0) // 초
   const [paused, setPaused] = useState(false)
   const [showEnd, setShowEnd] = useState(false)
@@ -39,11 +41,20 @@ export default function LiveExercise() {
   ).padStart(2, '0')}`
 
   const endSession = () => {
-    // 방금 끝난 세션을 리포트 화면으로 전달. messages 는 이번 세션에서 모인
-    // 계약③ FeedbackMessage 들(최신이 위라 시간순으로 뒤집어 넘긴다).
-    const session = makeDummySession(elapsed, messages.length)
+    // 이번 세션에서 모인 계약③ FeedbackMessage 들(최신이 위라 시간순으로 뒤집음)
+    const report = [...messages].reverse()
+    // rep_count 는 vision(MediaPipe) 연동 전이라 경과 시간 기반 추정(약 4초/회).
+    // 연동되면 실제 카운트로 교체.
+    const repCount = Math.floor(elapsed / 4)
+    // 실제 기록으로 저장(localStorage) 후, 저장된 세션을 리포트로 전달
+    const session = addSession({
+      exercise: exercise.id,
+      durationSec: elapsed,
+      repCount,
+      report,
+    })
     navigate('/app/records/report', {
-      state: { session, report: [...messages].reverse() },
+      state: { session, report },
     })
   }
 

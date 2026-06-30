@@ -1,6 +1,7 @@
 import { useNavigate, useLocation } from 'react-router-dom'
 import FeedbackCard from '../components/FeedbackCard.jsx'
-import { dummySessions, fmtDuration } from '../dummy.js'
+import { fmtDuration } from '../dummy.js'
+import { useProfileOrFallback } from '../state/ProfileContext.jsx'
 
 /* 세션 리포트 — 운동 종료 직후 요약.
    LiveExercise 에서 { session, report } 를 state 로 받는다.
@@ -10,18 +11,46 @@ export default function SessionReport() {
   const navigate = useNavigate()
   const location = useLocation()
 
-  const fallback = dummySessions[dummySessions.length - 1]
-  const session = location.state?.session ?? fallback
-  const report = location.state?.report ?? fallback.report
+  const profile = useProfileOrFallback()
 
-  const durationSec = session.duration_s ?? 0
-  const repCount = session.rep_count ?? 0
+  // 운동 종료 직후 LiveExercise 에서 전달된 세션/리포트
+  const session = location.state?.session ?? null
+  const report = location.state?.report ?? []
+
+  const durationSec = session?.duration_s ?? 0
+  const repCount = session?.rep_count ?? 0
+  const focusNames = profile.focus_areas.map((fa) => fa.area).join(', ')
+
+  // 새로고침 등으로 세션 정보 없이 진입한 경우 안내
+  if (!session) {
+    return (
+      <div className="screen">
+        <div className="screen__scroll">
+          <p className="eyebrow">세션 리포트</p>
+          <h2 className="title">표시할 세션이 없어요</h2>
+          <div className="detail-empty">
+            리포트는 운동을 마친 직후에 보여요. 지난 기록은 기록 탭에서 날짜로
+            확인할 수 있어요.
+          </div>
+        </div>
+        <div className="screen__footer">
+          <button
+            className="btn btn--primary"
+            onClick={() => navigate('/app/records')}
+          >
+            기록 보기
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="screen">
       <div className="screen__scroll">
         <p className="eyebrow">세션 리포트</p>
         <h2 className="title">오늘 운동 정리했어요</h2>
+        <p className="subtitle">관찰 기준: {focusNames}</p>
 
         {/* 세션 메타 */}
         <div className="session-meta">

@@ -10,6 +10,7 @@ import LiveExercise from './screens/LiveExercise.jsx'
 import RecordsCalendar from './screens/RecordsCalendar.jsx'
 import SessionReport from './screens/SessionReport.jsx'
 import SessionDetail from './screens/SessionDetail.jsx'
+import ProfileEdit from './screens/ProfileEdit.jsx'
 import './onboarding.css'
 import './exercise.css'
 import './records.css'
@@ -39,6 +40,7 @@ export default function App() {
           <Route path="records" element={<RecordsCalendar />} />
           <Route path="records/report" element={<SessionReport />} />
           <Route path="records/:date" element={<SessionDetail />} />
+          <Route path="profile" element={<ProfileEdit />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />
