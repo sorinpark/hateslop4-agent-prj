@@ -1,0 +1,170 @@
+/* 기록 묶음 스타일 (세션 리포트 / 캘린더 / 날짜별 상세).
+   색상은 전부 theme.css 의 CSS 변수만 사용한다 — 새 hex 추가 금지. */
+
+/* 세션 메타 요약 (리포트 상단 / 상세 상단) */
+.session-meta {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.session-meta__item {
+  flex: 1;
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  padding: 12px;
+  text-align: center;
+}
+.session-meta__value {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.session-meta__label {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* 리포트 본문 = 계약③ FeedbackMessage 카드 재사용 (exercise.css의 .fb) */
+.report-section-title {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin: 8px 0 10px;
+}
+
+/* 캘린더 */
+.cal {
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: 16px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+.cal__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.cal__month {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.cal__nav {
+  background: transparent;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  width: 32px;
+  height: 32px;
+  cursor: pointer;
+  font-size: 16px;
+  font-family: inherit;
+}
+.cal__grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+.cal__dow {
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-muted);
+  padding-bottom: 4px;
+}
+.cal__cell {
+  aspect-ratio: 1;
+  border: none;
+  background: transparent;
+  border-radius: 10px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-family: inherit;
+  cursor: pointer;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.cal__cell:disabled {
+  color: var(--text-faint);
+  cursor: default;
+}
+.cal__cell--has {
+  color: var(--accent-soft-text-strong);
+}
+.cal__cell--has::after {
+  content: '';
+  position: absolute;
+  bottom: 6px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.cal__cell--selected {
+  background: var(--accent-soft-bg);
+  border: 1px solid var(--accent-border-soft);
+}
+
+/* 기록 리스트 행 */
+.rec-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  cursor: pointer;
+  width: 100%;
+  font-family: inherit;
+  text-align: left;
+}
+.rec-row__date {
+  font-size: 15px;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+.rec-row__sub {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  margin-top: 2px;
+}
+.rec-row__chev {
+  color: var(--text-muted);
+  font-size: 18px;
+}
+
+/* 날짜별 상세 — 선택 안내 / 빈 상태 */
+.detail-empty {
+  background: var(--bg-card-soft);
+  border: 1px dashed var(--border-default);
+  border-radius: 12px;
+  padding: 24px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+/* 뒤로가기 헤더 */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.topbar__back {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 22px;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  font-family: inherit;
+}

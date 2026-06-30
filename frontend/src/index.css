@@ -1,0 +1,33 @@
+/* 전역 리셋/레이아웃만. 색은 전부 theme.css의 CSS 변수로만 쓴다. */
+@import './theme.css';
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font: 16px/1.5 system-ui, 'Segoe UI', Roboto, sans-serif;
+  letter-spacing: 0.1px;
+  color-scheme: dark;
+  color: var(--text-primary);
+  background: var(--bg-app);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  min-height: 100svh;
+  display: flex;
+  justify-content: center;
+  background: var(--bg-app);
+}
+
+a {
+  color: var(--accent);
+}

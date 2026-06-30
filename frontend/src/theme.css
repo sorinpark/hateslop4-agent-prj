@@ -1,0 +1,38 @@
+/* 디자인 토큰 — 페리윙클(인디고-블루) 다크 테마.
+   모든 화면이 이 변수를 통해서만 색을 쓴다. 임의로 새 hex값 추가하지 말 것.
+   초록/빨강 계열을 액센트로 쓰지 않는 이유: "위험/경고"가 아니라
+   "관찰·참고 정보"라는 제품 톤과 맞추기 위함 (기획 전환 7 참고). */
+
+:root {
+  /* 배경 단계 */
+  --bg-app: #0B0C10;        /* 기기 프레임 바깥 */
+  --bg-screen: #14161B;     /* 화면 배경 */
+  --bg-card: #1D2027;       /* 카드 */
+  --bg-card-soft: #181B21;  /* 보조 카드/태그 배경 */
+  --bg-input: #161616;      /* 입력 필드 배경 */
+
+  /* 텍스트 */
+  --text-primary: #F2F3F5;
+  --text-secondary: #BCC0CA;
+  --text-tertiary: #9CA0AB;
+  --text-muted: #686D78;
+  --text-faint: #5A5F6B;
+
+  /* 경계선 */
+  --border-default: #2A2E37;
+  --border-soft: #262A33;
+
+  /* 액센트 (페리윙클) */
+  --accent: #7C8AF5;
+  --accent-on: #161A36;       /* 액센트 배경 위 텍스트 */
+  --accent-soft-bg: #1C2036;  /* 액센트 톤 카드 배경 */
+  --accent-soft-text: #AEB6EE;
+  --accent-soft-text-strong: #D2D7F2;
+  --accent-border-soft: #313A63;
+
+  /* 상태 보조색 (분류 라벨용, 액센트와 구분되는 의미) */
+  --neutral-dot: #5A6072;     /* "연결" 분류 */
+  --warn-dot: #D9B36A;        /* "보상 가능" 분류 — 주의 환기, 위험 아님 */
+  --warn-soft-bg: #2A2414;
+  --warn-soft-text: #D9B36A;
+}
