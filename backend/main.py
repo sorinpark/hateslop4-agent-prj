@@ -6,18 +6,18 @@
 실행:  uvicorn main:app --reload
 문서:  http://127.0.0.1:8000/docs  (자동 생성되는 API 테스트 페이지)
 """
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from google.genai import errors as genai_errors
 
 from schemas import (
     InjuryInput,
     ObservationProfile,
-    FocusArea,
-    Pattern,
     FeatureSummary,
     FeedbackResponse,
     FeedbackMessage,
 )
+import profile as profile_svc
 
 app = FastAPI(title="부상 이력 기반 운동 피드백 AI Agent")
 
@@ -37,23 +37,23 @@ def health():
 
 @app.post("/profile", response_model=ObservationProfile)
 def create_profile(injuries: list[InjuryInput]):
-    """온보딩 입력 -> 관찰 프로필 생성.
+    """온보딩 입력 -> 관찰 프로필 생성 (Gemini, 모델은 llm.MODEL).
 
-    TODO(B&C): profile.py에서 Gemini(gemini-2.5-flash-lite) 호출로 교체.
-    프롬프트 규칙: 병명을 '설명'하지 말 것 / '위험·진단' 단어 금지 /
+    실제 LLM 호출은 profile.py 가 담당. 프롬프트 규칙(기획.md 10번):
+    병명을 '설명'하지 말 것 / '위험·진단' 단어 금지 /
     focus_areas는 category(input|linked|compensatory)와 reason을 함께 생성.
-    아래는 우선 동작 확인용 목 데이터.
     """
-    return ObservationProfile(
-        user_id="u_demo",
-        injuries=injuries,
-        focus_areas=[
-            FocusArea(area="오른쪽 발목", category="input", reason="직접 입력한 부위"),
-            FocusArea(area="오른쪽 발뒤꿈치", category="linked", reason="발목과 함께 부담"),
-            FocusArea(area="오른쪽 무릎", category="compensatory", reason="발목 보상 움직임 가능성"),
-        ],
-        watch_patterns=[Pattern.LR_IMBALANCE, Pattern.INSTABILITY, Pattern.LOAD_SHIFT],
-    )
+    if not injuries:
+        raise HTTPException(status_code=422, detail="injuries가 비어 있어요.")
+    try:
+        return profile_svc.create_profile(injuries)
+    except genai_errors.APIError as e:
+        # Gemini 과부하(503)/rate limit(429) 등 -> 503으로 전달(프론트가 재시도 안내)
+        code = getattr(e, "code", 503) or 503
+        raise HTTPException(
+            status_code=503 if code in {429, 500, 502, 503, 504} else 502,
+            detail="관찰 프로필 생성 중 LLM 호출이 일시적으로 실패했어요. 잠시 후 다시 시도해주세요.",
+        )
 
 
 @app.post("/feedback", response_model=FeedbackResponse)
