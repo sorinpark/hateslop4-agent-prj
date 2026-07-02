@@ -1,11 +1,14 @@
 """
-MediaPipe 포즈 인식 스파이크 - 스쿼트 관절 가시성 확인용
+MediaPipe 포즈 인식 스파이크 - 스쿼트 관절 가시성 확인 + 특징 추출
 관심 관절: hip(23,24), knee(25,26), ankle(27,28)
 초록 원 = visibility >= 0.6 (잘 인식됨)
 빨간 원 = visibility < 0.6 (인식 불량)
+5초마다 콘솔에 schemas.FeatureSummary 형식 JSON을 출력한다.
 """
 
+import json
 import sys
+import time
 import urllib.request
 from pathlib import Path
 import cv2
@@ -13,6 +16,11 @@ import mediapipe as mp
 from mediapipe.tasks import python as mp_python
 from mediapipe.tasks.python import vision as mp_vision
 import numpy as np
+
+from feature_extractor import WindowAccumulator
+
+SESSION_ID = "spike_session"
+EXERCISE = "squat"
 
 MODEL_URL = (
     "https://storage.googleapis.com/mediapipe-models/"
@@ -67,6 +75,9 @@ def main():
     if not cap.isOpened():
         sys.exit("웹캠을 열 수 없습니다. 카메라 연결/권한을 확인하세요.")
 
+    accumulator = WindowAccumulator(window_seconds=5.0)
+    start_time = time.time()
+
     with mp_vision.PoseLandmarker.create_from_options(options) as landmarker:
         timestamp = 0
         print("스페이스바: 없음 / q: 종료")
@@ -100,6 +111,11 @@ def main():
                 print(f"\r평균 visibility: {avg_vis:.2f}  ", end="", flush=True)
                 cv2.putText(frame, f"avg vis: {avg_vis:.2f}", (10, 30),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
+
+                accumulator.add_frame(landmarks, time.time() - start_time)
+                summary = accumulator.get_summary_if_ready(SESSION_ID, EXERCISE)
+                if summary is not None:
+                    print("\n" + json.dumps(summary.model_dump(), indent=2, ensure_ascii=False))
             else:
                 print("\r사람 미감지          ", end="", flush=True)
                 cv2.putText(frame, "No person detected", (10, 30),
