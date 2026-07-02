@@ -97,6 +97,20 @@ def save_session_end(session_id: str, db_path: str | Path = DB_PATH) -> None:
         )
 
 
+def get_session(session_id: str, db_path: str | Path = DB_PATH) -> dict | None:
+    """세션 시작/종료 엔드포인트용: session_id 존재 여부 확인 및 타임스탬프 조회."""
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            """
+            SELECT session_id, user_id, exercise, date, started_at, ended_at
+            FROM sessions
+            WHERE session_id = ?
+            """,
+            (session_id,),
+        ).fetchone()
+    return dict(row) if row is not None else None
+
+
 def save_feature_window(summary: FeatureSummary, db_path: str | Path = DB_PATH) -> None:
     with _connect(db_path) as conn:
         conn.execute(

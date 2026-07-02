@@ -7,11 +7,13 @@
 문서:  http://127.0.0.1:8000/docs  (자동 생성되는 API 테스트 페이지)
 """
 import logging
+import uuid
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from google.genai import errors as genai_errors
+from pydantic import BaseModel
 
 from schemas import (
     InjuryInput,
@@ -107,3 +109,56 @@ def feedback(profile: ObservationProfile, summary: FeatureSummary):
         logger.exception("피드백 저장 실패 (session_id=%s)", response.session_id)
 
     return response
+
+
+# ── 세션 시작/종료 (schemas.py 계약 3종과 무관한 부가 API라 요청/응답 모델은 로컬에 정의) ──
+class SessionStartRequest(BaseModel):
+    user_id: str
+    exercise: str
+
+
+class SessionStartResponse(BaseModel):
+    session_id: str
+    started_at: str
+
+
+class SessionEndResponse(BaseModel):
+    session_id: str
+    ended_at: str
+
+
+@app.post("/session/start", response_model=SessionStartResponse)
+def start_session(body: SessionStartRequest):
+    """운동 세션 시작 기록. session_id는 서버가 발급해 이후 /feedback 등에서 참조한다.
+
+    /profile, /feedback과 달리 이 엔드포인트는 '저장' 자체가 응답의 목적이므로
+    (돌려줄 session_id/started_at이 저장 결과에서 나온다) 저장 실패를 삼키지 않고
+    500으로 명확히 알린다 - 조용히 넘기면 프론트가 존재하지 않는 세션으로 이후
+    요청을 계속 보내게 된다.
+    """
+    session_id = str(uuid.uuid4())
+    try:
+        db_repo.save_session_start(session_id, body.user_id, body.exercise)
+        session = db_repo.get_session(session_id)
+    except Exception:
+        logger.exception("세션 시작 저장 실패 (user_id=%s)", body.user_id)
+        raise HTTPException(status_code=500, detail="세션 시작 저장에 실패했어요.")
+
+    return SessionStartResponse(session_id=session_id, started_at=session["started_at"])
+
+
+@app.post("/session/end/{session_id}", response_model=SessionEndResponse)
+def end_session(session_id: str):
+    """운동 세션 종료 기록. 존재하지 않는 session_id면 404."""
+    existing = db_repo.get_session(session_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="존재하지 않는 session_id예요.")
+
+    try:
+        db_repo.save_session_end(session_id)
+        session = db_repo.get_session(session_id)
+    except Exception:
+        logger.exception("세션 종료 저장 실패 (session_id=%s)", session_id)
+        raise HTTPException(status_code=500, detail="세션 종료 저장에 실패했어요.")
+
+    return SessionEndResponse(session_id=session_id, ended_at=session["ended_at"])
