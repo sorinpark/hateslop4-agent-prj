@@ -1,0 +1,259 @@
+/* 운동 묶음 + 하단 탭바 스타일.
+   색상은 전부 theme.css의 CSS 변수만 사용한다 — 새 hex 추가 금지. */
+
+/* 탭바가 있는 메인 레이아웃: 화면 영역 + 하단 고정 탭바 */
+.tabbed {
+  display: flex;
+  flex-direction: column;
+  min-height: 100svh;
+}
+.tabbed__body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  /* 탭바 높이만큼 아래 여백 확보 */
+  padding-bottom: 64px;
+}
+
+.tabbar {
+  position: fixed;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: 420px;
+  height: 64px;
+  display: flex;
+  background: var(--bg-card);
+  border-top: 1px solid var(--border-default);
+}
+.tabbar__btn {
+  flex: 1;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--text-muted);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+.tabbar__btn--on {
+  color: var(--accent);
+}
+.tabbar__icon {
+  font-size: 20px;
+  line-height: 1;
+}
+
+/* 운동 홈 — 시작 카드 */
+.exercise-hero {
+  background: var(--accent-soft-bg);
+  border: 1px solid var(--accent-border-soft);
+  border-radius: 16px;
+  padding: 22px;
+  margin-bottom: 16px;
+}
+.exercise-hero__name {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--accent-soft-text-strong);
+  margin: 0 0 6px;
+}
+.exercise-hero__sub {
+  font-size: 14px;
+  color: var(--accent-soft-text);
+  margin: 0;
+}
+
+/* 카메라 가드 — 프리뷰 영역 */
+.cam-preview {
+  flex: 1;
+  min-height: 280px;
+  border-radius: 16px;
+  border: 1px dashed var(--border-default);
+  background: var(--bg-card-soft);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  text-align: center;
+  padding: 24px;
+  margin-bottom: 16px;
+}
+.cam-preview__icon {
+  font-size: 40px;
+  color: var(--text-tertiary);
+}
+.cam-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  margin-bottom: 16px;
+}
+.cam-status__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.cam-status__dot--ok {
+  background: var(--accent);
+}
+.cam-status__dot--bad {
+  background: var(--warn-dot);
+}
+.cam-status--ok {
+  color: var(--accent-soft-text);
+}
+.cam-status--bad {
+  color: var(--warn-soft-text);
+}
+
+/* 실시간 운동 화면 */
+.live {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-app);
+  padding: 20px 18px;
+  min-height: 100svh;
+}
+.live__top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+}
+.live__timer {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.live__reps {
+  font-size: 14px;
+  color: var(--text-tertiary);
+}
+.live__stage {
+  flex: 1;
+  min-height: 220px;
+  border-radius: 16px;
+  background: var(--bg-card-soft);
+  border: 1px solid var(--border-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  margin-bottom: 14px;
+  position: relative;
+}
+.live__paused-badge {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-default);
+}
+
+/* 실시간 피드백 메시지 카드 */
+.fb {
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 10px;
+  border: 1px solid var(--border-default);
+  background: var(--bg-card);
+}
+.fb--suggestion {
+  background: var(--accent-soft-bg);
+  border-color: var(--accent-border-soft);
+}
+.fb__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.fb__kind {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+.fb__area {
+  font-size: 12px;
+  color: var(--accent-soft-text);
+}
+.fb__text {
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  margin: 0;
+}
+.fb__feed {
+  flex: 1;
+  overflow-y: auto;
+  margin-bottom: 12px;
+}
+.fb__empty {
+  color: var(--text-muted);
+  font-size: 14px;
+  text-align: center;
+  padding: 24px 0;
+}
+
+/* 하단 액션 버튼 줄 */
+.live__actions {
+  display: flex;
+  gap: 10px;
+}
+.live__actions .btn {
+  width: auto;
+  flex: 1;
+}
+
+/* 종료 확인 팝업 (모달) */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgb(0 0 0 / 55%);
+  z-index: 10;
+}
+.modal {
+  width: 100%;
+  max-width: 420px;
+  background: var(--bg-card);
+  border-top-left-radius: 18px;
+  border-top-right-radius: 18px;
+  border-top: 1px solid var(--border-default);
+  padding: 22px 20px 24px;
+}
+.modal__title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 8px;
+}
+.modal__body {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin: 0 0 18px;
+  line-height: 1.5;
+}
+.modal__actions {
+  display: flex;
+  gap: 10px;
+}
+.modal__actions .btn {
+  width: auto;
+  flex: 1;
+}
