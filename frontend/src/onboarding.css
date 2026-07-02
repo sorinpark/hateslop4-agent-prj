@@ -1,0 +1,271 @@
+/* 온보딩 묶음 공통 스타일.
+   색상은 전부 theme.css의 CSS 변수만 사용한다 — 새 hex 추가 금지. */
+
+.app-frame {
+  width: 100%;
+  max-width: 420px;
+  min-height: 100svh;
+  background: var(--bg-app);
+  display: flex;
+  flex-direction: column;
+}
+
+/* 한 화면 = 세로로 꽉 차는 영역 */
+.screen {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 100svh;
+  padding: 28px 22px 24px;
+  background: var(--bg-screen);
+}
+
+.screen__scroll {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.screen__footer {
+  padding-top: 16px;
+}
+
+/* 진행 단계 표시 */
+.steps {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 24px;
+}
+.steps__dot {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border-default);
+}
+.steps__dot--on {
+  background: var(--accent);
+}
+
+/* 타이포 */
+.eyebrow {
+  font-size: 13px;
+  letter-spacing: 0.4px;
+  color: var(--accent-soft-text);
+  margin: 0 0 10px;
+}
+.title {
+  font-size: 26px;
+  line-height: 1.25;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 12px;
+}
+.subtitle {
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  margin: 0 0 20px;
+}
+.text-muted {
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* 카드 */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: 14px;
+  padding: 16px;
+  margin-bottom: 12px;
+}
+.card--soft {
+  background: var(--bg-card-soft);
+  border-color: var(--border-soft);
+}
+
+/* 버튼 */
+.btn {
+  width: 100%;
+  border: none;
+  border-radius: 12px;
+  padding: 15px 16px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+.btn--primary {
+  background: var(--accent);
+  color: var(--accent-on);
+}
+.btn--primary:disabled {
+  background: var(--bg-card);
+  color: var(--text-faint);
+  cursor: not-allowed;
+}
+.btn--ghost {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-default);
+}
+
+/* 입력 폼 */
+.field {
+  margin-bottom: 16px;
+}
+.field__label {
+  display: block;
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+.input,
+.select {
+  width: 100%;
+  background: var(--bg-input);
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 15px;
+  color: var(--text-primary);
+  font-family: inherit;
+}
+.input::placeholder {
+  color: var(--text-faint);
+}
+.input:focus,
+.select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* side / discomfort 선택 (세그먼트 버튼) */
+.segment {
+  display: flex;
+  gap: 8px;
+}
+.segment__btn {
+  flex: 1;
+  background: var(--bg-input);
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  padding: 11px 0;
+  font-size: 14px;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  font-family: inherit;
+}
+.segment__btn--on {
+  background: var(--accent-soft-bg);
+  border-color: var(--accent-border-soft);
+  color: var(--accent-soft-text-strong);
+}
+
+/* 면책 동의 체크 */
+.consent {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  padding: 14px;
+  cursor: pointer;
+  margin-bottom: 16px;
+}
+.consent input {
+  margin-top: 3px;
+  accent-color: var(--accent);
+  width: 18px;
+  height: 18px;
+}
+.consent__text {
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+/* 관찰 부위 분류 점 */
+.focus-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  margin-top: 6px;
+  flex-shrink: 0;
+}
+.dot--input {
+  background: var(--accent);
+}
+.dot--linked {
+  background: var(--neutral-dot);
+}
+.dot--compensatory {
+  background: var(--warn-dot);
+}
+.focus-area {
+  font-size: 15px;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+.focus-reason {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  margin-top: 2px;
+}
+
+/* 패턴 태그 */
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.tag {
+  font-size: 13px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--accent-soft-bg);
+  color: var(--accent-soft-text);
+  border: 1px solid var(--accent-border-soft);
+}
+
+/* 면책 태그 (참고 정보) */
+.note-tag {
+  display: inline-block;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--warn-soft-bg);
+  color: var(--warn-soft-text);
+  margin-top: 14px;
+}
+
+/* 스플래시 */
+.splash {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  gap: 8px;
+}
+.splash__logo {
+  width: 64px;
+  height: 64px;
+  border-radius: 18px;
+  background: var(--accent-soft-bg);
+  border: 1px solid var(--accent-border-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+  font-size: 30px;
+  margin-bottom: 18px;
+}
