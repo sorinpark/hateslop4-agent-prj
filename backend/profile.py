@@ -100,3 +100,26 @@ def _norm_category(value: str) -> str:
     """LLM이 살짝 다르게 줘도 허용값으로 정규화. 모르면 'linked'로 둠."""
     v = (value or "").strip().lower()
     return v if v in {"input", "linked", "compensatory"} else "linked"
+
+
+if __name__ == "__main__":
+    # Windows 콘솔(cp949)에서도 한글이 깨지지 않도록 출력 인코딩을 UTF-8로.
+    import sys
+
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:  # noqa: BLE001 - 재설정 불가 환경이면 그냥 진행
+        pass
+
+    # 목(mock) 데이터: 온보딩 화면이 없어도 이 파일만으로 바로 확인 가능.
+    _injuries = [InjuryInput(part="발목", side="right", condition="염좌", discomfort=3)]
+
+    try:
+        result = create_profile(_injuries)
+        print(f"[profile] user_id: {result.user_id}")
+        for fa in result.focus_areas:
+            print(f"[profile] ({fa.category}) {fa.area}: {fa.reason}")
+        print(f"[profile] watch_patterns: {[p.value for p in result.watch_patterns]}")
+    except Exception as e:  # noqa: BLE001 - 연결 확인 단계라 모든 예외를 사용자에게 보여줌
+        print(f"[profile] 실패: {type(e).__name__}: {e}")
+        raise SystemExit(1)
