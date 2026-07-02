@@ -6,6 +6,9 @@
 실행:  uvicorn main:app --reload
 문서:  http://127.0.0.1:8000/docs  (자동 생성되는 API 테스트 페이지)
 """
+import logging
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from google.genai import errors as genai_errors
@@ -18,8 +21,18 @@ from schemas import (
     FeedbackMessage,
 )
 import profile as profile_svc
+from db import repository as db_repo
 
-app = FastAPI(title="부상 이력 기반 운동 피드백 AI Agent")
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    db_repo.init_db()
+    yield
+
+
+app = FastAPI(title="부상 이력 기반 운동 피드백 AI Agent", lifespan=lifespan)
 
 # React 개발 서버(Vite 기본 포트 5173)에서 호출 허용
 app.add_middleware(
@@ -46,7 +59,7 @@ def create_profile(injuries: list[InjuryInput]):
     if not injuries:
         raise HTTPException(status_code=422, detail="injuries가 비어 있어요.")
     try:
-        return profile_svc.create_profile(injuries)
+        profile = profile_svc.create_profile(injuries)
     except genai_errors.APIError as e:
         # Gemini 과부하(503)/rate limit(429) 등 -> 503으로 전달(프론트가 재시도 안내)
         code = getattr(e, "code", 503) or 503
@@ -54,6 +67,13 @@ def create_profile(injuries: list[InjuryInput]):
             status_code=503 if code in {429, 500, 502, 503, 504} else 502,
             detail="관찰 프로필 생성 중 LLM 호출이 일시적으로 실패했어요. 잠시 후 다시 시도해주세요.",
         )
+
+    try:
+        db_repo.save_profile(profile)
+    except Exception:
+        logger.exception("프로필 저장 실패 (user_id=%s)", profile.user_id)
+
+    return profile
 
 
 @app.post("/feedback", response_model=FeedbackResponse)
@@ -72,7 +92,7 @@ def feedback(summary: FeatureSummary):
             guardrail_passed=True,
         )
 
-    return FeedbackResponse(
+    response = FeedbackResponse(
         session_id=summary.session_id,
         window_end_s=summary.window.end_s,
         messages=[
@@ -90,3 +110,10 @@ def feedback(summary: FeatureSummary):
         ],
         guardrail_passed=True,
     )
+
+    try:
+        db_repo.save_feedback(response)
+    except Exception:
+        logger.exception("피드백 저장 실패 (session_id=%s)", response.session_id)
+
+    return response
