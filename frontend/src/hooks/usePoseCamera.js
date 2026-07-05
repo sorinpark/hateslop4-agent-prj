@@ -91,9 +91,14 @@ export function usePoseCamera() {
           }
 
           const canvas = canvasRef.current
-          if (canvas && drawingUtils) {
-            canvas.width = video.videoWidth
-            canvas.height = video.videoHeight
+          if (canvas && drawingUtils && video.videoWidth && video.videoHeight) {
+            if (
+              canvas.width !== video.videoWidth ||
+              canvas.height !== video.videoHeight
+            ) {
+              canvas.width = video.videoWidth
+              canvas.height = video.videoHeight
+            }
             const ctx = canvas.getContext('2d')
             ctx.save()
             ctx.clearRect(0, 0, canvas.width, canvas.height)

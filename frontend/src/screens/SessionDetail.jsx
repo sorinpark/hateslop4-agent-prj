@@ -29,8 +29,9 @@ export default function SessionDetail() {
     setError(null)
     fetchSessions(getDeviceId(), date, date)
       .then(async (list) => {
+        const finished = list.filter((s) => s.duration_s != null)
         const withReports = await Promise.all(
-          list.map(async (session) => ({
+          finished.map(async (session) => ({
             ...session,
             report: await fetchSessionFeedback(session.session_id),
           })),
@@ -88,9 +89,7 @@ export default function SessionDetail() {
                 <div className="session-meta">
                   <div className="session-meta__item">
                     <div className="session-meta__value">
-                      {session.duration_s == null
-                        ? '진행 중'
-                        : fmtDuration(session.duration_s)}
+                      {fmtDuration(session.duration_s)}
                     </div>
                     <div className="session-meta__label">운동 시간</div>
                   </div>

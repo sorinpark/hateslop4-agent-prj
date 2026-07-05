@@ -39,7 +39,7 @@ export default function RecordsCalendar() {
     fetchSessions(getDeviceId(), start, end)
       .then((data) => {
         if (cancelled) return
-        setSessions(data)
+        setSessions(data.filter((s) => s.duration_s != null))
       })
       .catch((err) => {
         if (cancelled) return
@@ -133,9 +133,7 @@ export default function RecordsCalendar() {
               <span>
                 <span className="rec-row__date">{s.date}</span>
                 <span className="rec-row__sub">
-                  스쿼트 ·{' '}
-                  {s.duration_s == null ? '진행 중' : fmtDuration(s.duration_s)}{' '}
-                  · {s.rep_count}회
+                  스쿼트 · {fmtDuration(s.duration_s)} · {s.rep_count}회
                 </span>
               </span>
               <span className="rec-row__chev">›</span>

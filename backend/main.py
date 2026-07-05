@@ -261,6 +261,11 @@ async def _handle_frame(websocket: WebSocket, session_id: str, state: dict, data
 
     print(json.dumps(summary.model_dump(), indent=2, ensure_ascii=False))
 
+    try:
+        db_repo.save_feature_window(summary)
+    except Exception:
+        logger.exception("특징 윈도우 저장 실패 (session_id=%s)", session_id)
+
     profile = state.get("profile")
     if profile is None:
         await websocket.send_json({"error": "profile not loaded yet"})
