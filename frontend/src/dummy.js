@@ -139,6 +139,7 @@ export const dummyFeedbackStream = [
 
 // 초 -> "10분 12초"
 export function fmtDuration(sec) {
+  sec = Math.round(sec)
   const m = Math.floor(sec / 60)
   const s = sec % 60
   return s ? `${m}분 ${s}초` : `${m}분`

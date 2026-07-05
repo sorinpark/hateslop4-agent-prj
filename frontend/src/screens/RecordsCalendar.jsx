@@ -1,11 +1,12 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { fmtDuration } from '../dummy.js'
-import { useSessions } from '../state/SessionContext.jsx'
+import { fetchSessions } from '../api/sessions.js'
+import { getDeviceId } from '../state/storage.js'
 
 /* 기록 캘린더 — 운동한 날에 마커, 날짜 클릭 시 날짜별 상세로 이동.
    아래에는 최근 세션 리스트도 함께 보여준다.
-   세션은 SessionContext(localStorage)에서 읽는다 — 실제 운동 기록이 반영됨. */
+   세션은 백엔드 GET /sessions 에서 현재 달 범위로 조회한다. */
 const DOW = ['일', '월', '화', '수', '목', '금', '토']
 
 function ymd(y, m, d) {
@@ -14,18 +15,47 @@ function ymd(y, m, d) {
 
 export default function RecordsCalendar() {
   const navigate = useNavigate()
-  const { sessions, sessionDates } = useSessions()
   // 기본은 이번 달 표시
   const now = new Date()
   const [cursor, setCursor] = useState({
     year: now.getFullYear(),
     month: now.getMonth(), // 0-based
   })
+  const [sessions, setSessions] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
 
   const { year, month } = cursor
   const first = new Date(year, month, 1)
   const startDow = first.getDay()
   const daysInMonth = new Date(year, month + 1, 0).getDate()
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+    const start = ymd(year, month, 1)
+    const end = ymd(year, month, daysInMonth)
+    fetchSessions(getDeviceId(), start, end)
+      .then((data) => {
+        if (cancelled) return
+        setSessions(data)
+      })
+      .catch((err) => {
+        if (cancelled) return
+        setError(err.message)
+      })
+      .finally(() => {
+        if (cancelled) return
+        setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cursor])
+
+  const sessionDates = sessions.map((s) => s.date)
 
   const cells = []
   for (let i = 0; i < startDow; i++) cells.push(null)
@@ -36,9 +66,9 @@ export default function RecordsCalendar() {
     setCursor({ year: next.getFullYear(), month: next.getMonth() })
   }
 
-  // 최근 세션 리스트: 최신순
+  // 최근 세션 리스트: 시작 시각 내림차순
   const recent = [...sessions].sort((a, b) =>
-    b.session_id.localeCompare(a.session_id),
+    b.started_at.localeCompare(a.started_at),
   )
 
   return (
@@ -85,7 +115,11 @@ export default function RecordsCalendar() {
         </div>
 
         <p className="report-section-title">최근 세션</p>
-        {recent.length === 0 ? (
+        {loading ? (
+          <p className="text-muted">불러오는 중...</p>
+        ) : error ? (
+          <p className="text-muted">{error}</p>
+        ) : recent.length === 0 ? (
           <div className="detail-empty">
             아직 운동 기록이 없어요. 운동을 마치면 여기에 쌓여요.
           </div>
@@ -99,7 +133,9 @@ export default function RecordsCalendar() {
               <span>
                 <span className="rec-row__date">{s.date}</span>
                 <span className="rec-row__sub">
-                  스쿼트 · {fmtDuration(s.duration_s)} · {s.rep_count}회
+                  스쿼트 ·{' '}
+                  {s.duration_s == null ? '진행 중' : fmtDuration(s.duration_s)}{' '}
+                  · {s.rep_count}회
                 </span>
               </span>
               <span className="rec-row__chev">›</span>
