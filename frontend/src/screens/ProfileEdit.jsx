@@ -25,6 +25,8 @@ export default function ProfileEdit() {
     discomfort: first.discomfort ?? 3,
   })
   const [saved, setSaved] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState(null)
 
   const set = (key, value) => {
     setInjury((prev) => ({ ...prev, [key]: value }))
@@ -32,16 +34,25 @@ export default function ProfileEdit() {
   }
   const canSave = injury.part.trim().length > 0
 
-  const handleSave = () => {
-    updateInjuries([
-      {
-        part: injury.part.trim(),
-        side: injury.side,
-        condition: injury.condition.trim() || null,
-        discomfort: injury.discomfort,
-      },
-    ])
-    setSaved(true)
+  const handleSave = async () => {
+    setSaving(true)
+    setSaveError(null)
+    setSaved(false)
+    try {
+      await updateInjuries([
+        {
+          part: injury.part.trim(),
+          side: injury.side,
+          condition: injury.condition.trim() || null,
+          discomfort: injury.discomfort,
+        },
+      ])
+      setSaved(true)
+      setSaving(false)
+    } catch (err) {
+      setSaveError(err.message)
+      setSaving(false)
+    }
   }
 
   return (
@@ -133,6 +144,14 @@ export default function ProfileEdit() {
       </div>
 
       <div className="screen__footer">
+        {saveError && (
+          <p
+            className="text-muted"
+            style={{ textAlign: 'center', marginBottom: 10 }}
+          >
+            {saveError}
+          </p>
+        )}
         {saved && (
           <p
             className="text-muted"
@@ -141,8 +160,12 @@ export default function ProfileEdit() {
             저장됐어요. 운동·리포트에 반영돼요.
           </p>
         )}
-        <button className="btn btn--primary" disabled={!canSave} onClick={handleSave}>
-          저장하기
+        <button
+          className="btn btn--primary"
+          disabled={!canSave || saving}
+          onClick={handleSave}
+        >
+          {saving ? '저장 중...' : '저장하기'}
         </button>
       </div>
     </div>

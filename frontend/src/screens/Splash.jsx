@@ -1,8 +1,17 @@
+import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useProfile } from '../state/ProfileContext.jsx'
 
 /* 스플래시 — 앱 첫 진입. 다음: 면책 동의 */
 export default function Splash() {
   const navigate = useNavigate()
+  const { profile } = useProfile()
+
+  useEffect(() => {
+    if (profile) {
+      navigate('/app/exercise', { replace: true })
+    }
+  }, [profile, navigate])
 
   return (
     <div className="screen">

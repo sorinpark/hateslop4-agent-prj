@@ -61,7 +61,7 @@ def health():
 
 
 @app.post("/profile", response_model=ObservationProfile)
-def create_profile(injuries: list[InjuryInput]):
+def create_profile(injuries: list[InjuryInput], user_id: str = "u_demo"):
     """온보딩 입력 -> 관찰 프로필 생성 (Gemini, 모델은 llm.MODEL).
 
     실제 LLM 호출은 profile.py 가 담당. 프롬프트 규칙(기획.md 10번):
@@ -71,7 +71,7 @@ def create_profile(injuries: list[InjuryInput]):
     if not injuries:
         raise HTTPException(status_code=422, detail="injuries가 비어 있어요.")
     try:
-        profile = profile_svc.create_profile(injuries)
+        profile = profile_svc.create_profile(injuries, user_id=user_id)
     except genai_errors.APIError as e:
         # Gemini 과부하(503)/rate limit(429) 등 -> 503으로 전달(프론트가 재시도 안내)
         code = getattr(e, "code", 503) or 503
@@ -158,6 +158,8 @@ class SessionInfo(BaseModel):
     date: str
     started_at: str
     ended_at: str | None
+    duration_s: float | None
+    rep_count: int
 
 
 @app.post("/session/start", response_model=SessionStartResponse)
@@ -258,6 +260,11 @@ async def _handle_frame(websocket: WebSocket, session_id: str, state: dict, data
         return
 
     print(json.dumps(summary.model_dump(), indent=2, ensure_ascii=False))
+
+    try:
+        db_repo.save_feature_window(summary)
+    except Exception:
+        logger.exception("특징 윈도우 저장 실패 (session_id=%s)", session_id)
 
     profile = state.get("profile")
     if profile is None:
