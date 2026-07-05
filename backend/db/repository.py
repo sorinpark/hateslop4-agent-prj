@@ -73,6 +73,27 @@ def save_profile(profile: ObservationProfile, db_path: str | Path = DB_PATH) -> 
         )
 
 
+def get_profile(user_id: str, db_path: str | Path = DB_PATH) -> ObservationProfile | None:
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            """
+            SELECT user_id, injuries, focus_areas, watch_patterns, disclaimer
+            FROM profiles
+            WHERE user_id = ?
+            """,
+            (user_id,),
+        ).fetchone()
+    if row is None:
+        return None
+    return ObservationProfile(
+        user_id=row["user_id"],
+        injuries=json.loads(row["injuries"]),
+        focus_areas=json.loads(row["focus_areas"]),
+        watch_patterns=json.loads(row["watch_patterns"]),
+        disclaimer=row["disclaimer"],
+    )
+
+
 def save_session_start(
     session_id: str, user_id: str, exercise: str, db_path: str | Path = DB_PATH
 ) -> None:
