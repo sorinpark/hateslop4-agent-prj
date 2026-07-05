@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useCallback } from 'react'
 import { makeDummyProfile } from '../dummy.js'
 import { loadJSON, saveJSON, STORAGE_KEYS } from './storage.js'
+import { createProfile } from '../api/profile.js'
 
 /* 관찰 프로필 전역 상태 (localStorage 영속).
    온보딩(부상 입력 -> 프로필 생성)에서 확정한 schemas.ObservationProfile 을
@@ -28,10 +29,10 @@ export function ProfileProvider({ children }) {
   }, [])
 
   // 부상 이력(injuries)만 바꿔 프로필 재생성 (프로필 수정 화면용).
-  // focus_areas/watch_patterns 는 실제론 LLM 재생성 대상 — 지금은 더미로 재계산.
+  // 백엔드 POST /profile 로 재생성 요청 — 실패 시 기존 프로필은 그대로 유지.
   const updateInjuries = useCallback(
-    (injuries) => {
-      const next = makeDummyProfile(injuries)
+    async (injuries) => {
+      const next = await createProfile(injuries)
       setProfileState(next)
       saveJSON(STORAGE_KEYS.profile, next)
       return next
