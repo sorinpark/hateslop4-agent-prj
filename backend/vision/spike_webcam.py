@@ -13,13 +13,16 @@ import urllib.request
 from pathlib import Path
 import cv2
 import mediapipe as mp
+import requests
 from mediapipe.tasks import python as mp_python
 from mediapipe.tasks.python import vision as mp_vision
 import numpy as np
 
 from feature_extractor import WindowAccumulator
 
+API_BASE_URL = "http://127.0.0.1:8000"
 SESSION_ID = "spike_session"
+USER_ID = "u1"
 EXERCISE = "squat"
 
 MODEL_URL = (
@@ -37,6 +40,53 @@ JOINTS = {
 VIS_THRESHOLD = 0.6
 GREEN = (0, 255, 0)
 RED   = (0, 0, 255)
+
+
+def start_session():
+    try:
+        resp = requests.post(
+            f"{API_BASE_URL}/session/start",
+            json={"user_id": USER_ID, "exercise": EXERCISE},
+            timeout=3,
+        )
+        resp.raise_for_status()
+        return resp.json()["session_id"]
+    except requests.exceptions.RequestException as e:
+        print(f"경고: 세션 시작 API 호출 실패 ({e}). 하드코딩된 세션 ID로 진행합니다.")
+        return SESSION_ID
+
+
+def end_session(session_id):
+    try:
+        resp = requests.post(f"{API_BASE_URL}/session/end/{session_id}", timeout=3)
+        resp.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        print(f"경고: 세션 종료 API 호출 실패 ({e}).")
+
+
+def create_profile():
+    injuries = [{"part": "무릎", "side": "right", "discomfort": 3}]
+    try:
+        resp = requests.post(f"{API_BASE_URL}/profile", json=injuries, timeout=20)
+        resp.raise_for_status()
+        return resp.json()
+    except requests.exceptions.RequestException as e:
+        print(f"경고: 프로필 생성 API 호출 실패 ({e}). 이후 피드백 호출은 건너뜁니다.")
+        return None
+
+
+def request_feedback(profile_data, summary):
+    try:
+        resp = requests.post(
+            f"{API_BASE_URL}/feedback",
+            json={"profile": profile_data, "summary": summary.model_dump()},
+            timeout=3,
+        )
+        resp.raise_for_status()
+        for msg in resp.json().get("messages", []):
+            print(f"[피드백] {msg['text']}")
+    except requests.exceptions.RequestException as e:
+        print(f"경고: 피드백 API 호출 실패 ({e}).")
 
 
 def download_model():
@@ -57,6 +107,9 @@ def _result_callback(result, output_image, timestamp_ms):
 
 
 def main():
+    session_id = start_session()
+    profile_data = create_profile()
+
     if not MODEL_PATH.exists():
         download_model()
 
@@ -113,9 +166,11 @@ def main():
                             cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
 
                 accumulator.add_frame(landmarks, time.time() - start_time)
-                summary = accumulator.get_summary_if_ready(SESSION_ID, EXERCISE)
+                summary = accumulator.get_summary_if_ready(session_id, EXERCISE)
                 if summary is not None:
                     print("\n" + json.dumps(summary.model_dump(), indent=2, ensure_ascii=False))
+                    if profile_data is not None:
+                        request_feedback(profile_data, summary)
             else:
                 print("\r사람 미감지          ", end="", flush=True)
                 cv2.putText(frame, "No person detected", (10, 30),
@@ -127,6 +182,7 @@ def main():
 
     cap.release()
     cv2.destroyAllWindows()
+    end_session(session_id)
     print()
 
 

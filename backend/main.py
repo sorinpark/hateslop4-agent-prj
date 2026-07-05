@@ -6,14 +6,18 @@
 실행:  uvicorn main:app --reload
 문서:  http://127.0.0.1:8000/docs  (자동 생성되는 API 테스트 페이지)
 """
+import json
 import logging
+import sys
 import uuid
 from contextlib import asynccontextmanager
+from pathlib import Path
+from types import SimpleNamespace
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from google.genai import errors as genai_errors
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from schemas import (
     InjuryInput,
@@ -24,6 +28,11 @@ from schemas import (
 import profile as profile_svc
 import feedback as feedback_svc
 from db import repository as db_repo
+
+# vision/ 은 패키지가 아니라 (angles.py 등을 bare import 하는) 스크립트 모음이라,
+# feature_extractor.py 를 그대로 가져오려면 vision/ 자체를 sys.path에 넣어야 한다.
+sys.path.insert(0, str(Path(__file__).resolve().parent / "vision"))
+from feature_extractor import WindowAccumulator  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -162,3 +171,110 @@ def end_session(session_id: str):
         raise HTTPException(status_code=500, detail="세션 종료 저장에 실패했어요.")
 
     return SessionEndResponse(session_id=session_id, ended_at=session["ended_at"])
+
+
+# ── 실시간 운동 WebSocket ──────────────────────────────────────────────
+# session_id -> {"accumulator": WindowAccumulator, "exercise": str}
+_ws_sessions: dict[str, dict] = {}
+
+EXPECTED_LANDMARK_COUNT = 33
+
+
+def _to_landmark_objects(raw_list: list[dict]) -> list:
+    """클라이언트가 보낸 랜드마크 dict 리스트를
+    angles.py/feature_extractor.py가 기대하는 인덱스 접근(landmarks[idx]) +
+    속성 접근(.x/.y/.z/.visibility) 가능한 객체 리스트로 변환한다."""
+    return [
+        SimpleNamespace(
+            x=lm.get("x", 0.0),
+            y=lm.get("y", 0.0),
+            z=lm.get("z", 0.0),
+            visibility=lm.get("visibility", 0.0),
+        )
+        for lm in raw_list
+    ]
+
+
+async def _handle_init(websocket: WebSocket, state: dict, data: dict) -> None:
+    try:
+        profile = ObservationProfile(**data.get("profile", {}))
+    except ValidationError:
+        await websocket.send_json({"error": "invalid profile"})
+        return
+    state["profile"] = profile
+    await websocket.send_json({"ack": True, "profile_loaded": True})
+
+
+async def _handle_frame(websocket: WebSocket, session_id: str, state: dict, data: dict) -> None:
+    raw_landmarks = data.get("landmarks")
+    if not isinstance(raw_landmarks, list) or len(raw_landmarks) != EXPECTED_LANDMARK_COUNT:
+        await websocket.send_json({"ack": True})
+        return
+
+    landmarks = _to_landmark_objects(raw_landmarks)
+    state["accumulator"].add_frame(landmarks, data["timestamp_s"])
+
+    summary = state["accumulator"].get_summary_if_ready(session_id, state["exercise"])
+    if summary is None:
+        await websocket.send_json({"ack": True})
+        return
+
+    print(json.dumps(summary.model_dump(), indent=2, ensure_ascii=False))
+
+    profile = state.get("profile")
+    if profile is None:
+        await websocket.send_json({"error": "profile not loaded yet"})
+        return
+
+    if summary.confidence.below_threshold:
+        response = FeedbackResponse(
+            session_id=summary.session_id,
+            window_end_s=summary.window.end_s,
+            messages=[],
+            guardrail_passed=True,
+        )
+    else:
+        try:
+            response = feedback_svc.create_feedback(profile, summary)
+        except genai_errors.APIError:
+            await websocket.send_json({"error": "llm_temporarily_unavailable"})
+            return
+
+    try:
+        db_repo.save_feedback(response)
+    except Exception:
+        logger.exception("피드백 저장 실패 (session_id=%s)", response.session_id)
+
+    await websocket.send_json({
+        "window_ready": True,
+        "messages": [m.model_dump() for m in response.messages],
+        "guardrail_passed": response.guardrail_passed,
+    })
+
+
+@app.websocket("/ws/exercise")
+async def ws_exercise(websocket: WebSocket, session_id: str, exercise: str = "squat"):
+    await websocket.accept()
+    print(f"[ws] 연결됨 session_id={session_id}", flush=True)
+    _ws_sessions[session_id] = {
+        "accumulator": WindowAccumulator(window_seconds=5.0),
+        "exercise": exercise,
+        "profile": None,
+    }
+
+    try:
+        while True:
+            data = await websocket.receive_json()
+            state = _ws_sessions[session_id]
+            msg_type = data.get("type")
+
+            if msg_type == "init":
+                await _handle_init(websocket, state, data)
+            elif msg_type == "frame":
+                await _handle_frame(websocket, session_id, state, data)
+            else:
+                await websocket.send_json({"ack": True})
+    except WebSocketDisconnect:
+        print(f"[ws] 연결 종료 session_id={session_id}", flush=True)
+    finally:
+        _ws_sessions.pop(session_id, None)

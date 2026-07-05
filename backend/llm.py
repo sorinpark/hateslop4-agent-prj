@@ -20,9 +20,12 @@ from dotenv import load_dotenv
 from google import genai
 from google.genai import errors
 
-# .env는 프로젝트 루트(backend의 상위)에 둔다. 실행 위치와 무관하게 항상 그 파일을
-# 읽도록 이 파일 기준으로 경로를 잡는다.  backend/llm.py -> 루트 = parents[1]
-ROOT_ENV = Path(__file__).resolve().parents[1] / ".env"
+# .env는 backend/(이 파일과 같은 폴더)에 둔다. 실행 위치와 무관하게 항상 그 파일을
+# 읽도록 이 파일 기준으로 경로를 잡는다. 프로젝트 루트에 .env를 두는 경우도 있을 수
+# 있어 backend/.env가 없으면 상위 폴더(루트)의 .env로 폴백한다.
+_BACKEND_ENV = Path(__file__).resolve().parent / ".env"
+_ROOT_ENV = Path(__file__).resolve().parents[1] / ".env"
+ROOT_ENV = _BACKEND_ENV if _BACKEND_ENV.exists() else _ROOT_ENV
 load_dotenv(ROOT_ENV)
 
 # 기획/계획상 모델은 gemini-2.5-flash-lite 였으나, 무료 티어에서 flash-lite는
