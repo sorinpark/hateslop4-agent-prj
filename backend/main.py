@@ -23,6 +23,7 @@ from schemas import (
     InjuryInput,
     ObservationProfile,
     FeatureSummary,
+    FeedbackMessage,
     FeedbackResponse,
 )
 import profile as profile_svc
@@ -113,11 +114,25 @@ def feedback(profile: ObservationProfile, summary: FeatureSummary):
         )
 
     try:
+        db_repo.save_feature_window(summary)
+    except Exception:
+        logger.exception("특징 윈도우 저장 실패 (session_id=%s)", summary.session_id)
+
+    try:
         db_repo.save_feedback(response)
     except Exception:
         logger.exception("피드백 저장 실패 (session_id=%s)", response.session_id)
 
     return response
+
+
+@app.get("/profile/{user_id}", response_model=ObservationProfile)
+def get_profile(user_id: str):
+    """온보딩에서 생성된 관찰 프로필 조회. 저장된 적 없으면 404."""
+    profile = db_repo.get_profile(user_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="존재하지 않는 user_id예요.")
+    return profile
 
 
 # ── 세션 시작/종료 (schemas.py 계약 3종과 무관한 부가 API라 요청/응답 모델은 로컬에 정의) ──
@@ -134,6 +149,15 @@ class SessionStartResponse(BaseModel):
 class SessionEndResponse(BaseModel):
     session_id: str
     ended_at: str
+
+
+class SessionInfo(BaseModel):
+    session_id: str
+    user_id: str
+    exercise: str
+    date: str
+    started_at: str
+    ended_at: str | None
 
 
 @app.post("/session/start", response_model=SessionStartResponse)
@@ -171,6 +195,20 @@ def end_session(session_id: str):
         raise HTTPException(status_code=500, detail="세션 종료 저장에 실패했어요.")
 
     return SessionEndResponse(session_id=session_id, ended_at=session["ended_at"])
+
+
+@app.get("/sessions", response_model=list[SessionInfo])
+def list_sessions(user_id: str, start_date: str, end_date: str):
+    """캘린더 마커용: user_id의 [start_date, end_date](YYYY-MM-DD, 양끝 포함) 세션 목록."""
+    return db_repo.get_sessions_by_date_range(user_id, start_date, end_date)
+
+
+@app.get("/sessions/{session_id}/feedback", response_model=list[FeedbackMessage])
+def get_session_feedback(session_id: str):
+    """날짜별 상세 화면용: 존재하지 않는 session_id면 404, 있으면 피드백 메시지 시간순 반환."""
+    if db_repo.get_session(session_id) is None:
+        raise HTTPException(status_code=404, detail="존재하지 않는 session_id예요.")
+    return db_repo.get_feedback_by_session(session_id)
 
 
 # ── 실시간 운동 WebSocket ──────────────────────────────────────────────
