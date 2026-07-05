@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useCallback } from 'react'
 import { makeDummyProfile } from '../dummy.js'
-import { loadJSON, saveJSON, STORAGE_KEYS } from './storage.js'
+import { loadJSON, saveJSON, STORAGE_KEYS, getDeviceId } from './storage.js'
 import { createProfile } from '../api/profile.js'
 
 /* 관찰 프로필 전역 상태 (localStorage 영속).
@@ -32,7 +32,7 @@ export function ProfileProvider({ children }) {
   // 백엔드 POST /profile 로 재생성 요청 — 실패 시 기존 프로필은 그대로 유지.
   const updateInjuries = useCallback(
     async (injuries) => {
-      const next = await createProfile(injuries)
+      const next = await createProfile(injuries, getDeviceId())
       setProfileState(next)
       saveJSON(STORAGE_KEYS.profile, next)
       return next

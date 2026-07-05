@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { patternLabel, categoryLabel, sideLabel } from '../dummy.js'
 import { useProfile } from '../state/ProfileContext.jsx'
 import { createProfile } from '../api/profile.js'
+import { getDeviceId } from '../state/storage.js'
 
 /* 관찰 프로필 — schemas.ObservationProfile 을 받아 표시한다.
    필드: user_id / injuries / focus_areas[{area,category,reason}]
@@ -31,7 +32,7 @@ export default function ObservationProfile() {
     setLoading(true)
     setError(null)
 
-    createProfile(injuries)
+    createProfile(injuries, getDeviceId())
       .then((result) => {
         if (ignore) return
         setLocalProfile(result)

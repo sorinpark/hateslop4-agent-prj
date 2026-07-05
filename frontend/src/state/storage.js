@@ -22,4 +22,14 @@ export function saveJSON(key, value) {
 export const STORAGE_KEYS = {
   profile: 'hateslop.profile',
   sessions: 'hateslop.sessions',
+  deviceId: 'hateslop.device_id',
+}
+
+export function getDeviceId() {
+  const existing = localStorage.getItem(STORAGE_KEYS.deviceId)
+  if (existing) return existing
+
+  const id = crypto.randomUUID()
+  localStorage.setItem(STORAGE_KEYS.deviceId, id)
+  return id
 }
