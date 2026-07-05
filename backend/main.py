@@ -158,6 +158,8 @@ class SessionInfo(BaseModel):
     date: str
     started_at: str
     ended_at: str | None
+    duration_s: float | None
+    rep_count: int
 
 
 @app.post("/session/start", response_model=SessionStartResponse)

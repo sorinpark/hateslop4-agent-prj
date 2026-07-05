@@ -186,14 +186,33 @@ def get_sessions_by_date_range(
     with _connect(db_path) as conn:
         rows = conn.execute(
             """
-            SELECT session_id, user_id, exercise, date, started_at, ended_at
+            SELECT
+                sessions.session_id,
+                sessions.user_id,
+                sessions.exercise,
+                sessions.date,
+                sessions.started_at,
+                sessions.ended_at,
+                COALESCE(SUM(feature_windows.rep_count), 0) AS rep_count
             FROM sessions
-            WHERE user_id = ? AND date BETWEEN ? AND ?
-            ORDER BY date, started_at
+            LEFT JOIN feature_windows
+                ON sessions.session_id = feature_windows.session_id
+            WHERE sessions.user_id = ? AND sessions.date BETWEEN ? AND ?
+            GROUP BY sessions.session_id
+            ORDER BY sessions.date, sessions.started_at
             """,
             (user_id, start_date, end_date),
         ).fetchall()
-    return [dict(row) for row in rows]
+
+    sessions = [dict(row) for row in rows]
+    for session in sessions:
+        if session["ended_at"] is not None:
+            started = datetime.fromisoformat(session["started_at"])
+            ended = datetime.fromisoformat(session["ended_at"])
+            session["duration_s"] = (ended - started).total_seconds()
+        else:
+            session["duration_s"] = None
+    return sessions
 
 
 def get_feedback_by_session(
