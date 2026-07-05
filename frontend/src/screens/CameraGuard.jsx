@@ -1,23 +1,14 @@
-import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { exercise, dummyConfidence } from '../dummy.js'
+import { exercise } from '../dummy.js'
+import { usePoseCamera } from '../hooks/usePoseCamera.js'
 
 /* 카메라 가드 — 운동별 안내 + 인식 신뢰도 체크 (기획.md 4-7-가).
-   schemas.Confidence.below_threshold 가 true면 운동을 시작하지 않고 재안내한다.
-   여기선 카메라 연동 전이라 신뢰도를 토글로 시연한다. */
+   confidence < 0.6 이면 운동을 시작하지 않고 재안내한다. */
 export default function CameraGuard() {
   const navigate = useNavigate()
-  // 더미: 실제로는 vision 이 매 프레임 confidence 를 올려준다
-  const [confidence, setConfidence] = useState(dummyConfidence)
+  const { videoRef, canvasRef, confidence, status, error } = usePoseCamera()
 
-  const ok = !confidence.below_threshold && confidence.overall >= 0.6
-
-  const toggleDummy = () =>
-    setConfidence((c) =>
-      c.below_threshold
-        ? { ...c, overall: 0.92, below_threshold: false }
-        : { ...c, overall: 0.34, below_threshold: true },
-    )
+  const ok = confidence !== null && confidence >= 0.6
 
   return (
     <div className="screen">
@@ -26,11 +17,45 @@ export default function CameraGuard() {
         <h2 className="title">카메라를 맞춰주세요</h2>
         <p className="subtitle">{exercise.cameraHint}</p>
 
-        <div className="cam-preview">
-          <span className="cam-preview__icon">📷</span>
-          <p className="text-muted" style={{ margin: 0 }}>
-            (카메라 프리뷰 자리 — vision 연동 시 실제 영상 표시)
-          </p>
+        <div className="cam-preview" style={{ position: 'relative' }}>
+          {status === 'loading' && (
+            <p className="text-muted" style={{ margin: 0 }}>
+              카메라를 준비하고 있어요...
+            </p>
+          )}
+
+          {status === 'error' && (
+            <p className="text-muted" style={{ margin: 0 }}>
+              카메라 접근에 실패했어요. 브라우저 카메라 권한을 확인해주세요.
+              {error ? ` (${error})` : ''}
+            </p>
+          )}
+
+          <video
+            ref={videoRef}
+            muted
+            playsInline
+            autoPlay
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: '100%',
+              height: '100%',
+              transform: 'scaleX(-1)',
+            }}
+          />
+          <canvas
+            ref={canvasRef}
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: '100%',
+              height: '100%',
+              transform: 'scaleX(-1)',
+            }}
+          />
         </div>
 
         <div className={'cam-status ' + (ok ? 'cam-status--ok' : 'cam-status--bad')}>
@@ -40,26 +65,28 @@ export default function CameraGuard() {
               (ok ? 'cam-status__dot--ok' : 'cam-status__dot--bad')
             }
           />
-          {ok
-            ? `관절 인식 양호 (신뢰도 ${Math.round(confidence.overall * 100)}%)`
-            : `관절이 잘 안 잡혀요 (신뢰도 ${Math.round(
-                confidence.overall * 100,
-              )}%) — 카메라 위치를 다시 맞춰주세요`}
+          {confidence === null
+            ? '아직 인식되지 않았어요'
+            : ok
+              ? `관절 인식 양호 (신뢰도 ${Math.round(confidence * 100)}%)`
+              : `관절이 잘 안 잡혀요 (신뢰도 ${Math.round(
+                  confidence * 100,
+                )}%) — 카메라 위치를 다시 맞춰주세요`}
         </div>
-
-        {/* 시연용 토글 — 실제 빌드에선 제거 (vision 신뢰도가 대체) */}
-        <button className="btn btn--ghost" onClick={toggleDummy}>
-          (시연용) 인식 상태 바꿔보기
-        </button>
       </div>
 
       <div className="screen__footer">
+        {!ok && (
+          <p className="text-muted">
+            인식이 안정적이지 않아요. 조명을 밝게 하거나 배경과 대비되는 옷을
+            입으면 도움이 될 수 있어요.
+          </p>
+        )}
         <button
           className="btn btn--primary"
-          disabled={!ok}
           onClick={() => navigate('/app/exercise/live')}
         >
-          {ok ? '운동 시작' : '인식되면 시작할 수 있어요'}
+          운동 시작
         </button>
       </div>
     </div>
