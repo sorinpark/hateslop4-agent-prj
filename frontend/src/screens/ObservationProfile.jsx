@@ -1,37 +1,77 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import {
-  makeDummyProfile,
-  patternLabel,
-  categoryLabel,
-  sideLabel,
-} from '../dummy.js'
+import { patternLabel, categoryLabel, sideLabel } from '../dummy.js'
 import { useProfile } from '../state/ProfileContext.jsx'
+import { createProfile } from '../api/profile.js'
 
 /* 관찰 프로필 — schemas.ObservationProfile 을 받아 표시한다.
    필드: user_id / injuries / focus_areas[{area,category,reason}]
          / watch_patterns / disclaimer
-   지금은 API 대신 더미 프로필 사용 (입력된 injuries 만 끼워 넣음).
-   생성된 프로필은 전역 Context 에 저장 -> 운동/리포트가 같은 프로필 참조. */
+   POST /profile 을 호출해 생성하고, 결과를 전역 Context 에 저장
+   -> 운동/리포트가 같은 프로필 참조. */
 export default function ObservationProfile() {
   const navigate = useNavigate()
   const location = useLocation()
   const { setProfile } = useProfile()
 
+  const [profile, setLocalProfile] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+  const [retryKey, setRetryKey] = useState(0)
+
   // 부상 입력 화면에서 넘어온 injuries (없으면 데모 기본값)
   const stateInjuries = location.state?.injuries
-  // injuries 가 바뀔 때만 프로필 재생성 (실제 연동 시 POST /profile 응답으로 교체)
-  const profile = useMemo(() => {
+
+  useEffect(() => {
+    let ignore = false
     const injuries = stateInjuries ?? [
       { part: '발목', side: 'right', condition: '족저근막염', discomfort: 3 },
     ]
-    return makeDummyProfile(injuries)
-  }, [stateInjuries])
 
-  // 확정된 프로필을 전역에 올린다
-  useEffect(() => {
-    setProfile(profile)
-  }, [profile, setProfile])
+    setLoading(true)
+    setError(null)
+
+    createProfile(injuries)
+      .then((result) => {
+        if (ignore) return
+        setLocalProfile(result)
+        setProfile(result)
+        setLoading(false)
+      })
+      .catch((err) => {
+        if (ignore) return
+        setError(err.message)
+        setLoading(false)
+      })
+
+    return () => {
+      ignore = true
+    }
+  }, [stateInjuries, retryKey, setProfile])
+
+  if (loading) {
+    return (
+      <div className="screen">
+        <p className="text-muted">관찰 프로필을 만들고 있어요...</p>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="screen">
+        <p className="text-muted">{error}</p>
+        <button
+          className="btn btn--primary"
+          onClick={() => setRetryKey((k) => k + 1)}
+        >
+          다시 시도
+        </button>
+      </div>
+    )
+  }
+
+  if (!profile) return null
 
   return (
     <div className="screen">
