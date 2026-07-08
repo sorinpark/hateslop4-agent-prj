@@ -8,7 +8,11 @@ import { useProfileOrFallback } from '../state/ProfileContext.jsx'
 import { fetchSessions } from '../api/sessions.js'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
-const WS_BASE_URL = API_BASE_URL.replace(/^http/, 'ws')
+// API_BASE_URL이 있으면 그걸 ws(s)로 바꿔 쓰고, 비어 있으면(=Vite 프록시 사용)
+// 현재 페이지 origin에서 ws/wss를 유도한다. https 페이지(폰)면 wss로 맞춰진다.
+const WS_BASE_URL = API_BASE_URL
+  ? API_BASE_URL.replace(/^http/, 'ws')
+  : `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}`
 
 // 로컬 날짜를 YYYY-MM-DD 로 (기록 조회용, UTC 밀림 방지)
 function todayLocal() {
@@ -37,7 +41,6 @@ export default function LiveExercise() {
 
   const wsRef = useRef(null)
   const closingRef = useRef(false) // endSession에서 정상 종료 중임을 표시
-  const didInitRef = useRef(false) // StrictMode 이중 마운트에서 세션 시작 로직이 두 번 실행되는 것을 방지
 
   // 1초마다 타이머 (일시정지/팝업 중엔 멈춤)
   useEffect(() => {
@@ -46,12 +49,16 @@ export default function LiveExercise() {
     return () => clearInterval(id)
   }, [paused, showEnd])
 
-  // 세션 시작 -> WebSocket 연결 (최초 1회)
+  // 세션 시작 -> WebSocket 연결.
+  // StrictMode(dev)는 이 effect를 [마운트→언마운트→재마운트]로 두 번 돌린다.
+  // 예전 코드는 didInitRef 가드로 재실행을 막았는데, 그러면 1차 실행이 cleanup의
+  // cancelled=true로 무효화된 뒤 2차 실행이 아예 안 일어나 영원히 'connecting'에
+  // 멈추는 버그가 있었다(특히 폰: /session/start가 느려 그 사이 언마운트가 확실히
+  // 일어남). 그래서 가드를 없애고, 매 실행이 자기 WS를 만들고 cleanup에서 그 WS를
+  // 확실히 닫도록 한다. 이 effect 인스턴스에 종속된 로컬 변수(myWs, cancelled)만 본다.
   useEffect(() => {
-    if (didInitRef.current) return
-    didInitRef.current = true
-
     let cancelled = false
+    let myWs = null
 
     async function connect() {
       let newSessionId = null
@@ -80,6 +87,7 @@ export default function LiveExercise() {
       const ws = new WebSocket(
         `${WS_BASE_URL}/ws/exercise?session_id=${newSessionId}&exercise=${exercise.id}`,
       )
+      myWs = ws
       wsRef.current = ws
 
       ws.onopen = () => {
@@ -115,26 +123,47 @@ export default function LiveExercise() {
 
     return () => {
       cancelled = true
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        wsRef.current.close()
+      // 이 실행이 만든 WS를 상태와 무관하게 닫는다(CONNECTING 중이어도 close 가능).
+      if (myWs) {
+        try {
+          myWs.close()
+        } catch {
+          // 이미 닫혔거나 초기 상태면 무시
+        }
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // 프레임 전송: landmarks가 갱신될 때마다 서버로 전달
+  // 프레임 전송: landmarks가 갱신될 때마다 서버로 전달.
+  // 단, 30fps 전량을 터널로 보내면(초당 30 x 33랜드마크 JSON) 트래픽이 커서
+  // 연결이 끊길 수 있다. 서버는 5초 윈도우로 모으니 초당 ~12프레임이면 충분하다.
+  // (1) 최소 전송 간격으로 스로틀 + (2) WS 송신 버퍼가 밀리면 그 프레임은 건너뛴다.
+  const sentFramesRef = useRef(0)
+  const lastSentAtRef = useRef(0)
+  const [sentFrames, setSentFrames] = useState(0) // 진단 표시용
+  const MIN_SEND_INTERVAL_MS = 80 // 약 12fps
+  const MAX_BUFFERED_BYTES = 200 * 1024 // 송신 버퍼가 이보다 밀리면 프레임 드롭
   useEffect(() => {
     if (paused || wsStatus !== 'ready') return
     if (landmarks == null) return
+    const now = performance.now()
+    if (now - lastSentAtRef.current < MIN_SEND_INTERVAL_MS) return
     const ws = wsRef.current
     if (ws && ws.readyState === WebSocket.OPEN) {
+      // 백프레셔: 아직 안 나간 데이터가 많으면 이번 프레임은 버린다(최신 우선).
+      if (ws.bufferedAmount > MAX_BUFFERED_BYTES) return
+      lastSentAtRef.current = now
       ws.send(
         JSON.stringify({
           type: 'frame',
           landmarks,
-          timestamp_s: performance.now() / 1000,
+          timestamp_s: now / 1000,
         }),
       )
+      sentFramesRef.current += 1
+      // 매 프레임 setState는 과하니 10프레임마다 화면 갱신
+      if (sentFramesRef.current % 10 === 0) setSentFrames(sentFramesRef.current)
     }
   }, [landmarks, paused, wsStatus])
 
@@ -195,6 +224,30 @@ export default function LiveExercise() {
 
       <div className="live__stage" style={{ position: 'relative' }}>
         {paused && <span className="live__paused-badge">일시정지됨</span>}
+        {/* 임시 진단 오버레이 (원인 파악용) */}
+        <div
+          style={{
+            position: 'absolute',
+            top: 6,
+            right: 6,
+            zIndex: 2,
+            fontSize: 11,
+            lineHeight: 1.4,
+            padding: '4px 8px',
+            borderRadius: 6,
+            background: 'rgba(0,0,0,0.6)',
+            color: '#fff',
+            textAlign: 'right',
+            pointerEvents: 'none',
+          }}
+        >
+          WS:{wsStatus} · 전송:{sentFrames}
+          <br />
+          관절:{landmarks ? 'O' : 'X'} · 신뢰도:
+          {confidence == null ? '-' : Math.round(confidence * 100) + '%'}
+          <br />
+          카메라:{status}
+        </div>
         <video
           ref={videoRef}
           muted
@@ -206,7 +259,7 @@ export default function LiveExercise() {
             left: 0,
             width: '100%',
             height: '100%',
-            transform: 'scaleX(-1)',
+            transform: 'scaleX(-1)', // 거울 모드(전면 카메라처럼 좌우 반전)
           }}
         />
         <canvas
@@ -217,7 +270,7 @@ export default function LiveExercise() {
             left: 0,
             width: '100%',
             height: '100%',
-            transform: 'scaleX(-1)',
+            transform: 'scaleX(-1)', // video와 동일하게 반전(스켈레톤 정렬 유지)
           }}
         />
       </div>

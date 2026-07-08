@@ -28,11 +28,13 @@ _ROOT_ENV = Path(__file__).resolve().parents[1] / ".env"
 ROOT_ENV = _BACKEND_ENV if _BACKEND_ENV.exists() else _ROOT_ENV
 load_dotenv(ROOT_ENV)
 
-# 기획/계획상 모델은 gemini-2.5-flash-lite 였으나, 무료 티어에서 flash-lite는
-# 분당 요청 한도(RPM)가 빡빡해 429가 자주 발생함(연속 호출 시 거의 전부 429).
-# gemini-2.5-flash는 같은 키로 훨씬 안정적이라 데모 안정성(기획 6번) 위해 채택.
-# 한도 여유가 생기거나 유료 키로 바꾸면 flash-lite로 되돌려도 됨.
-MODEL = "gemini-2.5-flash"
+# 모델: gemini-flash-lite-latest (flash-lite 계열의 별칭 모델).
+# 개발/테스트 중 gemini-2.5-flash / gemini-2.5-flash-lite 무료 티어 한도(RPD)를
+# 소진해 429가 계속 났는데, 'latest' 별칭 모델들은 별도 quota 버킷을 써서 여유가
+# 있었다. 실시간 피드백(5초마다 호출)이 요청 수를 많이 쓰므로 이 여유가 유용하다.
+# 순간적인 과부하(503)/분당 한도(429)는 generate()의 재시도 백오프로 흡수한다.
+# 한도가 회복되면 gemini-2.5-flash-lite로 되돌려도 된다(기획상 원래 선택).
+MODEL = "gemini-flash-lite-latest"
 
 # 재시도 대상 HTTP 코드: 429(rate limit), 5xx(일시적 과부하/장애)
 _RETRYABLE = {429, 500, 502, 503, 504}
@@ -60,14 +62,17 @@ def get_client() -> genai.Client:
     return _client
 
 
-def generate(*, contents, config=None, model: str = MODEL, max_retries: int = 3):
+def generate(*, contents, config=None, model: str = MODEL, max_retries: int = 5):
     """generate_content 호출 + 일시적 에러(429/5xx) 지수 백오프 재시도.
 
-    Gemini는 'high demand' 503을 종종 내므로, 데모 안정성(기획 6번)을 위해
-    LLM 호출은 전부 이 함수를 통해 한다. 재시도해도 안 되면 마지막 에러를 올린다.
+    flash-lite는 'high demand' 503을 꽤 자주 낸다(연속 호출 시 절반 가까이 실패
+    관측됨). 데모 안정성(기획 6번)을 위해 LLM 호출은 전부 이 함수를 통하고,
+    재시도를 넉넉히(기본 5회) 둬서 이 불안정을 흡수한다. 짧은 초기 대기 +
+    지수 백오프(상한 8s)로 총 대기가 과하지 않게 한다.
+    재시도해도 안 되면 마지막 에러를 올린다(상위에서 503으로 사용자 안내).
     """
     client = get_client()
-    delay = 1.0
+    delay = 0.5
     last_exc = None
     for attempt in range(max_retries):
         try:
@@ -78,7 +83,7 @@ def generate(*, contents, config=None, model: str = MODEL, max_retries: int = 3)
             code = getattr(e, "code", None)
             if code in _RETRYABLE and attempt < max_retries - 1:
                 time.sleep(delay)
-                delay *= 2  # 1s -> 2s -> 4s
+                delay = min(delay * 2, 8.0)  # 0.5 -> 1 -> 2 -> 4 -> 8(상한)
                 last_exc = e
                 continue
             raise

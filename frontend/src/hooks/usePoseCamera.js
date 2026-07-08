@@ -43,7 +43,16 @@ export function usePoseCamera() {
           numPoses: 1,
         })
 
-        stream = await navigator.mediaDevices.getUserMedia({ video: true })
+        // 세로형(폰 세로 화면) 우선 해상도 요청. ideal 이라 미지원 카메라는
+        // 근사값으로 대체된다. object-fit:cover 컨테이너와 비율이 맞아 좌우
+        // 잘림이 줄고 전신(측면)이 더 잘 들어온다.
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            width: { ideal: 720 },
+            height: { ideal: 1280 },
+            facingMode: 'user',
+          },
+        })
 
         if (cancelled) {
           stream.getTracks().forEach((track) => track.stop())

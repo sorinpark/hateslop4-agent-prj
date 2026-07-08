@@ -85,6 +85,38 @@
   padding: 24px;
   margin-bottom: 16px;
 }
+/* 실제 웹캠이 들어갈 때: 안내문용 padding/점선 제거.
+   object-fit:cover 로 종횡비 유지하며 컨테이너를 채운다(위아래 검은 여백 없음).
+   단 폰 카메라는 보통 가로형(16:9) 영상을 주므로, 컨테이너를 너무 세로로 길게
+   잡으면 cover가 좌우를 크게 잘라 '확대돼 보이는' 문제가 생긴다. 그래서 세로
+   높이를 적당히(약 화면 절반) 잡아 좌우 잘림·확대를 완화한다. */
+.cam-preview--live {
+  padding: 0;
+  border-style: solid;
+  overflow: hidden;
+  background: #000;
+  /* 세로로 적당히: 너무 길면 가로 영상이 좌우로 크게 잘려 확대돼 보이고,
+     너무 짧으면 화면이 답답하다. 화면의 절반보다 조금 크게 잡는다. */
+  min-height: 54vh;
+  max-height: 62vh;
+}
+.cam-preview--live video,
+.cam-preview--live canvas {
+  object-fit: cover;
+}
+/* 캡처(정지) 상태 배지 */
+.cam-captured-badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 1;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--accent-on);
+  font-weight: 600;
+}
 .cam-preview__icon {
   font-size: 40px;
   color: var(--text-tertiary);
@@ -141,9 +173,11 @@
 }
 .live__stage {
   flex: 1;
-  min-height: 220px;
+  /* CameraGuard(.cam-preview--live)와 동일한 세로 크기감으로 맞춤 */
+  min-height: 54vh;
+  max-height: 62vh;
   border-radius: 16px;
-  background: var(--bg-card-soft);
+  background: #000;
   border: 1px solid var(--border-soft);
   display: flex;
   align-items: center;
@@ -151,6 +185,12 @@
   color: var(--text-muted);
   margin-bottom: 14px;
   position: relative;
+  overflow: hidden;
+}
+/* 실시간 영상/스켈레톤도 종횡비 유지하며 채운다(확대·왜곡 방지) */
+.live__stage video,
+.live__stage canvas {
+  object-fit: cover;
 }
 .live__paused-badge {
   position: absolute;
