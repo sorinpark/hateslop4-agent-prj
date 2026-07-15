@@ -5,6 +5,7 @@ import InjuryInput from './screens/InjuryInput.jsx'
 import ObservationProfile from './screens/ObservationProfile.jsx'
 import TabLayout from './components/TabLayout.jsx'
 import ExerciseHome from './screens/ExerciseHome.jsx'
+import ExerciseSelect from './screens/ExerciseSelect.jsx'
 import CameraGuard from './screens/CameraGuard.jsx'
 import LiveExercise from './screens/LiveExercise.jsx'
 import RecordsCalendar from './screens/RecordsCalendar.jsx'
@@ -36,6 +37,7 @@ export default function App() {
         <Route path="/app" element={<TabLayout />}>
           <Route index element={<Navigate to="exercise" replace />} />
           <Route path="exercise" element={<ExerciseHome />} />
+          <Route path="exercise/select" element={<ExerciseSelect />} />
           <Route path="exercise/camera" element={<CameraGuard />} />
           <Route path="records" element={<RecordsCalendar />} />
           <Route path="records/report" element={<SessionReport />} />

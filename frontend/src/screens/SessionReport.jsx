@@ -79,19 +79,20 @@ export default function SessionReport() {
       </div>
 
       <div className="screen__footer">
-        <button
-          className="btn btn--primary"
-          onClick={() => navigate('/app/records')}
-        >
-          기록에서 보기
-        </button>
-        <button
-          className="btn btn--ghost"
-          style={{ marginTop: 10 }}
-          onClick={() => navigate('/app/exercise')}
-        >
-          운동 홈으로
-        </button>
+        <div className="btn-row">
+          <button
+            className="btn btn--ghost"
+            onClick={() => navigate('/app/exercise')}
+          >
+            운동 홈으로
+          </button>
+          <button
+            className="btn btn--primary"
+            onClick={() => navigate('/app/records')}
+          >
+            기록에서 보기
+          </button>
+        </div>
       </div>
     </div>
   )

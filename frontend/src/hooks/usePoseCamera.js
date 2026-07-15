@@ -13,6 +13,59 @@ const MODEL_ASSET_PATH =
 // backend/vision/feature_extractor.py의 CONFIDENCE_LANDMARK_IDXS와 반드시 동일해야 함
 const CONFIDENCE_LANDMARK_IDXS = [11, 12, 23, 24, 25, 26, 27, 28, 31, 32]
 
+async function openFrontPortraitCamera() {
+  // iOS는 16:9 를 요청하면 센서를 가운데만 잘라(크롭) 줘서 화각이 좁아지고
+  // 얼굴이 확대돼 보인다. 아이폰 기본 카메라와 같은 넓은 화각은 센서 전체를
+  // 쓰는 4:3 이다 → 세로 기준 3:4(720x960)를 최우선으로 요청한다.
+  // 주의: aspectRatio 제약은 iOS 에서 가로 프레임을 줘버리는 일이 있어 쓰지
+  // 않는다. width < height 숫자 요청만으로 세로를 유도한다.
+  const attempts = [
+    {
+      facingMode: 'user',
+      width: { ideal: 720 },
+      height: { ideal: 960 },
+    },
+    {
+      facingMode: 'user',
+      width: { ideal: 720 },
+      height: { ideal: 1280 },
+    },
+    { facingMode: 'user' },
+  ]
+
+  let lastError = null
+  for (const video of attempts) {
+    try {
+      return await navigator.mediaDevices.getUserMedia({ video })
+    } catch (err) {
+      if (
+        err?.name === 'NotAllowedError' ||
+        err?.name === 'SecurityError' ||
+        err?.name === 'NotFoundError'
+      ) {
+        throw err
+      }
+      lastError = err
+    }
+  }
+  throw lastError
+}
+
+async function applyMinimumCameraZoom(stream) {
+  const [track] = stream.getVideoTracks()
+  if (!track?.getCapabilities || !track?.applyConstraints) return
+
+  const capabilities = track.getCapabilities()
+  if (!('zoom' in capabilities)) return
+
+  const zoom = capabilities.zoom?.min ?? 1
+  try {
+    await track.applyConstraints({ advanced: [{ zoom }] })
+  } catch {
+    // Some mobile browsers expose zoom but reject applying it.
+  }
+}
+
 // 웹캠을 열고 MediaPipe PoseLandmarker로 매 프레임 랜드마크를 추출,
 // canvas에 스켈레톤을 그려주는 공용 훅.
 export function usePoseCamera() {
@@ -23,6 +76,7 @@ export function usePoseCamera() {
   const [confidence, setConfidence] = useState(null)
   const [status, setStatus] = useState('loading')
   const [error, setError] = useState(null)
+  const [cameraStream, setCameraStream] = useState(null)
 
   useEffect(() => {
     let cancelled = false
@@ -43,21 +97,18 @@ export function usePoseCamera() {
           numPoses: 1,
         })
 
-        // 세로형(폰 세로 화면) 우선 해상도 요청. ideal 이라 미지원 카메라는
-        // 근사값으로 대체된다. object-fit:cover 컨테이너와 비율이 맞아 좌우
-        // 잘림이 줄고 전신(측면)이 더 잘 들어온다.
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            width: { ideal: 720 },
-            height: { ideal: 1280 },
-            facingMode: 'user',
-          },
-        })
+        // 전면 카메라. 폰 세로 화면에 맞게 '세로 영상'을 요청한다.
+        // width < height 로 줘야 세로(720x1280) 프레임을 받아 화면이 세로로
+        // 길게 나온다. (가로로 주면 세로 화면에 안 맞아 위아래 여백/가로로 보임)
+        // 확대·줌 강제는 없음 — 기본 카메라 화각 그대로.
+        stream = await openFrontPortraitCamera()
+        await applyMinimumCameraZoom(stream)
 
         if (cancelled) {
           stream.getTracks().forEach((track) => track.stop())
           return
         }
+        setCameraStream(stream)
 
         const video = videoRef.current
         video.srcObject = stream
@@ -142,5 +193,13 @@ export function usePoseCamera() {
     }
   }, [])
 
-  return { videoRef, canvasRef, landmarks, confidence, status, error }
+  return {
+    videoRef,
+    canvasRef,
+    landmarks,
+    confidence,
+    status,
+    error,
+    cameraStream,
+  }
 }

@@ -23,6 +23,7 @@ export const STORAGE_KEYS = {
   profile: 'hateslop.profile',
   sessions: 'hateslop.sessions',
   deviceId: 'hateslop.device_id',
+  exercise: 'hateslop.exercise', // 선택한 운동 id (운동 선택 화면 A)
 }
 
 export function getDeviceId() {

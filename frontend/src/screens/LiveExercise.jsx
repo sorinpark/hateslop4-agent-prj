@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { exercise } from '../dummy.js'
 import FeedbackCard from '../components/FeedbackCard.jsx'
 import { usePoseCamera } from '../hooks/usePoseCamera.js'
 import { getDeviceId } from '../state/storage.js'
 import { useProfileOrFallback } from '../state/ProfileContext.jsx'
 import { fetchSessions } from '../api/sessions.js'
+import { useExercise } from '../state/ExerciseContext.jsx'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
 // API_BASE_URL이 있으면 그걸 ws(s)로 바꿔 쓰고, 비어 있으면(=Vite 프록시 사용)
@@ -26,8 +26,11 @@ function todayLocal() {
    5~10초 윈도우가 완성될 때마다 서버가 보내주는 피드백을 이 자리에 흘려보낸다. */
 export default function LiveExercise() {
   const navigate = useNavigate()
+  const { exercise } = useExercise()
   const profile = useProfileOrFallback()
-  const { videoRef, canvasRef, landmarks, confidence, status } = usePoseCamera()
+  const { videoRef, canvasRef, landmarks, confidence, status, cameraStream } =
+    usePoseCamera()
+  const bgVideoRef = useRef(null)
   const [elapsed, setElapsed] = useState(0) // 초
   const [paused, setPaused] = useState(false)
   const [showEnd, setShowEnd] = useState(false)
@@ -40,6 +43,13 @@ export default function LiveExercise() {
   const [endingReport, setEndingReport] = useState(false)
 
   const wsRef = useRef(null)
+  useEffect(() => {
+    const bgVideo = bgVideoRef.current
+    if (!bgVideo || !cameraStream) return
+
+    bgVideo.srcObject = cameraStream
+    bgVideo.play().catch(() => {})
+  }, [cameraStream])
   const closingRef = useRef(false) // endSession에서 정상 종료 중임을 표시
 
   // 1초마다 타이머 (일시정지/팝업 중엔 멈춤)
@@ -66,7 +76,7 @@ export default function LiveExercise() {
         const res = await fetch(`${API_BASE_URL}/session/start`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ user_id: getDeviceId(), exercise: exercise.id }),
+          body: JSON.stringify({ user_id: getDeviceId(), exercise: exercise.slug }),
         })
         if (!res.ok) {
           const body = await res.json().catch(() => null)
@@ -85,7 +95,7 @@ export default function LiveExercise() {
       setSessionId(newSessionId)
 
       const ws = new WebSocket(
-        `${WS_BASE_URL}/ws/exercise?session_id=${newSessionId}&exercise=${exercise.id}`,
+        `${WS_BASE_URL}/ws/exercise?session_id=${newSessionId}&exercise=${exercise.slug}`,
       )
       myWs = ws
       wsRef.current = ws
@@ -219,7 +229,7 @@ export default function LiveExercise() {
     <div className="live">
       <div className="live__top">
         <span className="live__timer">{mmss}</span>
-        <span className="live__reps">스쿼트 · {messages.length}개 피드백</span>
+        <span className="live__reps">{exercise.name} · {messages.length}개 피드백</span>
       </div>
 
       <div className="live__stage" style={{ position: 'relative' }}>
@@ -249,7 +259,23 @@ export default function LiveExercise() {
           카메라:{status}
         </div>
         <video
+          ref={bgVideoRef}
+          className="camera-video-bg"
+          muted
+          playsInline
+          autoPlay
+          aria-hidden="true"
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+          }}
+        />
+        <video
           ref={videoRef}
+          className="camera-video-main"
           muted
           playsInline
           autoPlay
@@ -259,11 +285,12 @@ export default function LiveExercise() {
             left: 0,
             width: '100%',
             height: '100%',
-            transform: 'scaleX(-1)', // 거울 모드(전면 카메라처럼 좌우 반전)
+            transform: 'scaleX(-1)', // 전면 카메라 거울 모드 (CameraGuard와 통일)
           }}
         />
         <canvas
           ref={canvasRef}
+          className="camera-overlay-main"
           style={{
             position: 'absolute',
             top: 0,
@@ -273,24 +300,21 @@ export default function LiveExercise() {
             transform: 'scaleX(-1)', // video와 동일하게 반전(스켈레톤 정렬 유지)
           }}
         />
+
+        {/* 피드백을 카메라 위 반투명 오버레이로(최신 2개만) 얹어
+            카메라 세로 공간을 카메라 준비 화면과 동일하게 확보한다.
+            전체 목록은 세션 종료 후 리포트에서 보여준다. */}
+        <div className="fb-overlay">
+          {messages.slice(0, 2).map((m, i) => (
+            <FeedbackCard key={messages.length - i} msg={m} />
+          ))}
+        </div>
       </div>
       {wsStatus === 'error' && (
         <p className="text-muted" style={{ margin: 0 }}>
           연결에 문제가 있어요: {wsError}
         </p>
       )}
-
-      {/* 피드백 스트림 */}
-      <div className="fb__feed">
-        {messages.length === 0 && (
-          <p className="fb__empty">
-            자세를 잡고 운동을 시작하면 패턴을 관찰해 알려드려요.
-          </p>
-        )}
-        {messages.map((m, i) => (
-          <FeedbackCard key={i} msg={m} />
-        ))}
-      </div>
 
       <div className="live__actions">
         <button
