@@ -1,23 +1,82 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { exercise, dummyConfidence } from '../dummy.js'
+import { exercise } from '../dummy.js'
+import { createPoseLandmarker, computeConfidence } from '../lib/pose.js'
 
-/* 카메라 가드 — 운동별 안내 + 인식 신뢰도 체크 (기획.md 4-7-가).
-   schemas.Confidence.below_threshold 가 true면 운동을 시작하지 않고 재안내한다.
-   여기선 카메라 연동 전이라 신뢰도를 토글로 시연한다. */
+/* 카메라 가드 — 운동별 안내 + 실제 웹캠/MediaPipe 인식 신뢰도 체크 (기획.md 4-7-가).
+   schemas.Confidence.below_threshold 가 true면 운동을 시작하지 않고 재안내한다. */
 export default function CameraGuard() {
   const navigate = useNavigate()
-  // 더미: 실제로는 vision 이 매 프레임 confidence 를 올려준다
-  const [confidence, setConfidence] = useState(dummyConfidence)
+  const videoRef = useRef(null)
+  const rafRef = useRef(null)
+  const landmarkerRef = useRef(null)
+  const streamRef = useRef(null)
+  const [confidence, setConfidence] = useState({
+    overall: 0,
+    interp_ratio: 0,
+    below_threshold: true,
+  })
+  // 'loading' | 'ready' | 'denied' | 'error'
+  const [status, setStatus] = useState('loading')
 
-  const ok = !confidence.below_threshold && confidence.overall >= 0.6
+  useEffect(() => {
+    let cancelled = false
 
-  const toggleDummy = () =>
-    setConfidence((c) =>
-      c.below_threshold
-        ? { ...c, overall: 0.92, below_threshold: false }
-        : { ...c, overall: 0.34, below_threshold: true },
-    )
+    async function start() {
+      let stream
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'user' },
+        })
+      } catch (err) {
+        if (!cancelled) {
+          setStatus(err.name === 'NotAllowedError' ? 'denied' : 'error')
+        }
+        return
+      }
+      if (cancelled) {
+        stream.getTracks().forEach((t) => t.stop())
+        return
+      }
+      streamRef.current = stream
+      const video = videoRef.current
+      video.srcObject = stream
+      await video.play()
+
+      try {
+        const landmarker = await createPoseLandmarker()
+        if (cancelled) {
+          landmarker.close()
+          return
+        }
+        landmarkerRef.current = landmarker
+      } catch {
+        if (!cancelled) setStatus('error')
+        return
+      }
+
+      setStatus('ready')
+      const loop = () => {
+        if (cancelled || !videoRef.current || !landmarkerRef.current) return
+        const result = landmarkerRef.current.detectForVideo(videoRef.current, performance.now())
+        const landmarks = result.landmarks?.[0]
+        if (landmarks) setConfidence(computeConfidence(landmarks))
+        rafRef.current = requestAnimationFrame(loop)
+      }
+      loop()
+    }
+
+    start()
+
+    return () => {
+      cancelled = true
+      if (rafRef.current) cancelAnimationFrame(rafRef.current)
+      landmarkerRef.current?.close()
+      streamRef.current?.getTracks().forEach((t) => t.stop())
+    }
+  }, [])
+
+  const ok = status === 'ready' && !confidence.below_threshold
 
   return (
     <div className="screen">
@@ -27,30 +86,38 @@ export default function CameraGuard() {
         <p className="subtitle">{exercise.cameraHint}</p>
 
         <div className="cam-preview">
-          <span className="cam-preview__icon">📷</span>
-          <p className="text-muted" style={{ margin: 0 }}>
-            (카메라 프리뷰 자리 — vision 연동 시 실제 영상 표시)
-          </p>
+          <video ref={videoRef} className="cam-preview__video" muted playsInline />
+          {status === 'loading' && (
+            <p className="text-muted" style={{ margin: 0, position: 'relative' }}>
+              카메라를 불러오는 중...
+            </p>
+          )}
+          {status === 'denied' && (
+            <p className="text-muted" style={{ margin: 0, position: 'relative' }}>
+              카메라 권한이 필요해요. 브라우저 설정에서 허용해주세요.
+            </p>
+          )}
+          {status === 'error' && (
+            <p className="text-muted" style={{ margin: 0, position: 'relative' }}>
+              카메라를 불러오지 못했어요. 새로고침 후 다시 시도해주세요.
+            </p>
+          )}
         </div>
 
-        <div className={'cam-status ' + (ok ? 'cam-status--ok' : 'cam-status--bad')}>
-          <span
-            className={
-              'cam-status__dot ' +
-              (ok ? 'cam-status__dot--ok' : 'cam-status__dot--bad')
-            }
-          />
-          {ok
-            ? `관절 인식 양호 (신뢰도 ${Math.round(confidence.overall * 100)}%)`
-            : `관절이 잘 안 잡혀요 (신뢰도 ${Math.round(
-                confidence.overall * 100,
-              )}%) — 카메라 위치를 다시 맞춰주세요`}
-        </div>
-
-        {/* 시연용 토글 — 실제 빌드에선 제거 (vision 신뢰도가 대체) */}
-        <button className="btn btn--ghost" onClick={toggleDummy}>
-          (시연용) 인식 상태 바꿔보기
-        </button>
+        {status === 'ready' && (
+          <div className={'cam-status ' + (ok ? 'cam-status--ok' : 'cam-status--bad')}>
+            <span
+              className={
+                'cam-status__dot ' + (ok ? 'cam-status__dot--ok' : 'cam-status__dot--bad')
+              }
+            />
+            {ok
+              ? `관절 인식 양호 (신뢰도 ${Math.round(confidence.overall * 100)}%)`
+              : `관절이 잘 안 잡혀요 (신뢰도 ${Math.round(
+                  confidence.overall * 100,
+                )}%) — 카메라 위치를 다시 맞춰주세요`}
+          </div>
+        )}
       </div>
 
       <div className="screen__footer">
