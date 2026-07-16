@@ -235,11 +235,12 @@ export default function LiveExercise() {
   // (1) 최소 전송 간격으로 스로틀 + (2) WS 송신 버퍼가 밀리면 그 프레임은 건너뛴다.
   const sentFramesRef = useRef(0)
   const lastSentAtRef = useRef(0)
-  const [sentFrames, setSentFrames] = useState(0) // 진단 표시용
   const MIN_SEND_INTERVAL_MS = 80 // 약 12fps
   const MAX_BUFFERED_BYTES = 200 * 1024 // 송신 버퍼가 이보다 밀리면 프레임 드롭
   useEffect(() => {
-    if (paused || wsStatus !== 'ready') return
+    // showEnd(종료 확인 팝업)도 일시정지와 동일하게 전송을 막는다 —
+    // 예전엔 여기서 paused만 봐서, 종료 팝업이 떠 있는 동안에도 프레임이 계속 나가고 있었다.
+    if (paused || showEnd || wsStatus !== 'ready') return
     if (landmarks == null) return
     const now = performance.now()
     if (now - lastSentAtRef.current < MIN_SEND_INTERVAL_MS) return
@@ -256,10 +257,19 @@ export default function LiveExercise() {
         }),
       )
       sentFramesRef.current += 1
-      // 매 프레임 setState는 과하니 10프레임마다 화면 갱신
-      if (sentFramesRef.current % 10 === 0) setSentFrames(sentFramesRef.current)
+      // 예전엔 화면에 보이는 진단 오버레이였던 정보 — 마무리 단계에서 오버레이는 지우고
+      // 디버깅용으로 console.log만 남긴다(10프레임마다, 과도한 로그 방지).
+      if (sentFramesRef.current % 10 === 0) {
+        console.log(
+          `[live] WS:${wsStatus} 전송:${sentFramesRef.current} 관절:${landmarks ? 'O' : 'X'} ` +
+            `신뢰도:${confidence == null ? '-' : Math.round(confidence * 100) + '%'} 카메라:${status}`,
+        )
+      }
     }
-  }, [landmarks, paused, wsStatus])
+    // confidence/status는 로그 출력에만 쓰고, 그것 때문에 이 effect가 다시 돌 필요는
+    // 없다(전송 타이밍은 landmarks 갱신에만 반응하면 충분) — 그래서 deps에서 뺀다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [landmarks, paused, showEnd, wsStatus])
 
   const mmss = `${String(Math.floor(elapsed / 60)).padStart(2, '0')}:${String(
     elapsed % 60,
@@ -317,31 +327,8 @@ export default function LiveExercise() {
       </div>
 
       <div className="live__stage" style={{ position: 'relative' }}>
-        {paused && <span className="live__paused-badge">일시정지됨</span>}
-        {/* 임시 진단 오버레이 (원인 파악용) */}
-        <div
-          style={{
-            position: 'absolute',
-            top: 6,
-            right: 6,
-            zIndex: 2,
-            fontSize: 11,
-            lineHeight: 1.4,
-            padding: '4px 8px',
-            borderRadius: 6,
-            background: 'rgba(0,0,0,0.6)',
-            color: '#fff',
-            textAlign: 'right',
-            pointerEvents: 'none',
-          }}
-        >
-          WS:{wsStatus} · 전송:{sentFrames}
-          <br />
-          관절:{landmarks ? 'O' : 'X'} · 신뢰도:
-          {confidence == null ? '-' : Math.round(confidence * 100) + '%'}
-          <br />
-          카메라:{status}
-        </div>
+        {/* showEnd(종료 확인 팝업)도 일시정지와 동일한 배지로 보여준다 */}
+        {(paused || showEnd) && <span className="live__paused-badge">일시정지됨</span>}
         <video
           ref={bgVideoRef}
           className="camera-video-bg"
