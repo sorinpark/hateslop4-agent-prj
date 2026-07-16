@@ -37,6 +37,17 @@ function pickPopupCandidate(buffer, fallbackList) {
   return fallbackList[0] ?? null // 구간에 popup 후보가 아예 없으면 전체 이력 중 최신 것
 }
 
+// 3rep 구간에 모인 메시지들을 흡사한 것끼리 묶어 대표 1개씩만 남긴다(총로그탭용).
+function dedupeBatch(batch) {
+  const kept = []
+  for (const msg of batch) {
+    if (!kept.some((k) => isSimilarFeedback(k, msg))) {
+      kept.push(msg)
+    }
+  }
+  return kept
+}
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
 // API_BASE_URL이 있으면 그걸 ws(s)로 바꿔 쓰고, 비어 있으면(=Vite 프록시 사용)
 // 현재 페이지 origin에서 ws/wss를 유도한다. https 페이지(폰)면 wss로 맞춰진다.
@@ -76,6 +87,10 @@ export default function LiveExercise() {
   const popupTimeoutRef = useRef(null)
   const pendingRef = useRef([]) // 마지막 3n 트리거 이후 도착한 메시지 버퍼
   const totalRepsRef = useRef(0) // 세션 누적 rep (윈도우마다 리셋되는 서버 값과 별개)
+
+  // 총로그탭: 3rep 구간마다 dedupe된 메시지가 쌓이는 세션 전체 이력 (최신이 위)
+  const [logEntries, setLogEntries] = useState([])
+  const [showLog, setShowLog] = useState(false)
   useEffect(() => {
     return () => {
       if (popupTimeoutRef.current) clearTimeout(popupTimeoutRef.current)
@@ -163,10 +178,16 @@ export default function LiveExercise() {
             const nextTotal = prevTotal + data.rep_count
             totalRepsRef.current = nextTotal
 
-            // 누적 rep이 3의 배수 경계를 넘었으면 팝업 트리거
+            // 누적 rep이 3의 배수 경계를 넘었으면 팝업 트리거 + 총로그탭에 dedupe해서 기록
             if (Math.floor(prevTotal / 3) !== Math.floor(nextTotal / 3)) {
-              const chosen = pickPopupCandidate(pendingRef.current, messagesRef.current)
+              const batch = pendingRef.current
+              const chosen = pickPopupCandidate(batch, messagesRef.current)
+              const deduped = dedupeBatch(batch)
               pendingRef.current = []
+
+              if (deduped.length > 0) {
+                setLogEntries((prev) => [...deduped, ...prev])
+              }
               if (chosen) {
                 if (popupTimeoutRef.current) clearTimeout(popupTimeoutRef.current)
                 setPopup({ ...chosen, _popupKey: Date.now() })
@@ -372,7 +393,45 @@ export default function LiveExercise() {
             <FeedbackCard msg={popup} />
           </div>
         )}
+
+        {/* 총로그탭 진입 버튼: 카메라 화면 우측 하단 */}
+        <button
+          type="button"
+          className="log-toggle-btn"
+          onClick={() => setShowLog(true)}
+        >
+          상세 로그
+        </button>
       </div>
+
+      {/* 총로그탭: 팝업 내용 + 상세 관측 전체(3rep 단위 dedupe) — 반투명 오버레이,
+          뒤 운동화면이 비치도록 배경은 blur + 반투명만 준다. */}
+      {showLog && (
+        <div className="log-overlay" onClick={() => setShowLog(false)}>
+          <div className="log-overlay__panel" onClick={(e) => e.stopPropagation()}>
+            <div className="log-overlay__head">
+              <h3>상세 로그</h3>
+              <button
+                type="button"
+                className="log-overlay__close"
+                aria-label="닫기"
+                onClick={() => setShowLog(false)}
+              >
+                ×
+              </button>
+            </div>
+            <div className="log-overlay__list">
+              {logEntries.length === 0 ? (
+                <p className="fb__empty">아직 기록된 피드백이 없어요.</p>
+              ) : (
+                logEntries.map((m, i) => (
+                  <FeedbackCard key={logEntries.length - i} msg={m} />
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
       {wsStatus === 'error' && (
         <p className="text-muted" style={{ margin: 0 }}>
           연결에 문제가 있어요: {wsError}

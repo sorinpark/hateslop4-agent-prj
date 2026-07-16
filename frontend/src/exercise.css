@@ -375,6 +375,77 @@
   100% { opacity: 0; }
 }
 
+/* 총로그탭 진입 버튼 — 카메라 화면 우측 하단 */
+.log-toggle-btn {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  z-index: 4;
+  padding: 6px 12px;
+  font-size: 13px;
+  border-radius: 999px;
+  border: 1px solid rgb(255 255 255 / 25%);
+  background: rgb(0 0 0 / 55%);
+  color: #fff;
+}
+
+/* 총로그탭 오버레이 — 반투명 + blur로 뒤 운동화면이 비치게 하고, 글씨는 흰색으로 또렷하게 */
+.log-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  padding: 24px 16px;
+  background: rgb(0 0 0 / 55%);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+.log-overlay__panel {
+  margin: auto 0;
+  width: 100%;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid rgb(255 255 255 / 15%);
+  background: rgb(20 20 20 / 55%);
+}
+.log-overlay__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.log-overlay__head h3 {
+  margin: 0;
+  font-size: 16px;
+  color: #fff;
+}
+.log-overlay__close {
+  padding: 4px 8px;
+  border: none;
+  background: none;
+  font-size: 22px;
+  line-height: 1;
+  color: #fff;
+  cursor: pointer;
+}
+.log-overlay__list {
+  overflow-y: auto;
+}
+.log-overlay__list .fb {
+  background: rgb(0 0 0 / 40%);
+  border-color: rgb(255 255 255 / 12%);
+}
+.log-overlay__list .fb__text {
+  color: #fff;
+}
+.log-overlay__list .fb__kind,
+.log-overlay__list .fb__area {
+  color: rgb(255 255 255 / 70%);
+}
+
 /* 하단 액션 버튼 줄 — 카메라 준비 화면과 동일하게 작게. 항상 화면 하단에 */
 .live__actions {
   display: flex;
