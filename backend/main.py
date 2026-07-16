@@ -294,6 +294,7 @@ async def _handle_frame(websocket: WebSocket, session_id: str, state: dict, data
         "window_ready": True,
         "messages": [m.model_dump() for m in response.messages],
         "guardrail_passed": response.guardrail_passed,
+        "rep_count": summary.window.rep_count,
     })
 
 

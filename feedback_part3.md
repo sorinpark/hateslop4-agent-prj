@@ -69,6 +69,11 @@
 - `schemas.py`에 `ReportSummary` 추가 시 A·C에 공유
 - `feedback.py`는 C도 건드림(팝업/상세 구분) → **B는 report.py를 따로 만들고 feedback.py 최소 수정**
 
+> **C→B 권고 (2026-07-16)**: C가 `main.py`의 기존 WS 핸들러(`_handle_frame`)
+> 응답에 `rep_count` 필드를 추가할 예정(엔드포인트 함수 자체·`/report` 관련 코드는
+> 안 건드림). B의 새 엔드포인트 함수 추가 작업과는 겹치지 않지만, 혹시 같은
+> 시점에 `main.py`를 손대게 되면 참고.
+
 ---
 
 ## C · 실시간 로그/UX 개편 (담당: ___)
