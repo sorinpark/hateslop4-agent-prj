@@ -23,3 +23,14 @@ export async function fetchSessionFeedback(sessionId) {
 
   return res.json()
 }
+
+export async function fetchSessionReport(sessionId) {
+  const res = await fetch(`${API_BASE_URL}/sessions/${sessionId}/report`)
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => null)
+    throw new Error(body?.detail ?? `세션 리포트 조회 실패 (${res.status})`)
+  }
+
+  return res.json()
+}

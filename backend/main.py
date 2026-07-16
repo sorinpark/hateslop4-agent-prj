@@ -25,9 +25,11 @@ from schemas import (
     FeatureSummary,
     FeedbackMessage,
     FeedbackResponse,
+    ReportSummary,
 )
 import profile as profile_svc
 import feedback as feedback_svc
+import report as report_svc
 from db import repository as db_repo
 
 # vision/ 은 패키지가 아니라 (angles.py 등을 bare import 하는) 스크립트 모음이라,
@@ -211,6 +213,35 @@ def get_session_feedback(session_id: str):
     if db_repo.get_session(session_id) is None:
         raise HTTPException(status_code=404, detail="존재하지 않는 session_id예요.")
     return db_repo.get_feedback_by_session(session_id)
+
+
+@app.get("/sessions/{session_id}/report", response_model=ReportSummary)
+def get_session_report(session_id: str):
+    """세션 리포트 화면용: 세션의 피드백 메시지를 LLM 1회 호출로 총평 + 빈도 정리.
+
+    존재하지 않는 session_id면 404. 메시지가 없으면 LLM을 호출하지 않고
+    빈 리포트를 바로 돌려준다(불필요한 호출/쿼터 절약).
+    """
+    if db_repo.get_session(session_id) is None:
+        raise HTTPException(status_code=404, detail="존재하지 않는 session_id예요.")
+
+    messages = db_repo.get_feedback_by_session(session_id)
+    if not messages:
+        return ReportSummary(
+            session_id=session_id,
+            summary="이번 세션에서는 특별히 관찰된 패턴이 없었어요.",
+            items=[],
+        )
+
+    try:
+        return report_svc.create_report_summary(session_id, messages)
+    except genai_errors.APIError as e:
+        # Gemini 과부하(503)/rate limit(429) 등 -> 503으로 전달(프론트가 재시도 안내)
+        code = getattr(e, "code", 503) or 503
+        raise HTTPException(
+            status_code=503 if code in {429, 500, 502, 503, 504} else 502,
+            detail="리포트 요약 생성 중 LLM 호출이 일시적으로 실패했어요. 잠시 후 다시 시도해주세요.",
+        )
 
 
 # ── 실시간 운동 WebSocket ──────────────────────────────────────────────

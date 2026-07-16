@@ -78,3 +78,15 @@ class FeedbackResponse(BaseModel):
     window_end_s: float
     messages: list[FeedbackMessage]
     guardrail_passed: bool = True  # 확신형 표현 후처리 통과 여부
+
+
+# ── 계약 ④ 세션 리포트 요약 (backend/report -> frontend, 세션 종료 후 1회) ───
+class ReportSummaryItem(BaseModel):
+    text: str    # 정리된 관찰/제안 문구 (비슷한 것끼리 묶은 대표 문구)
+    count: int   # 세션 중 몇 번 관찰됐는지
+
+
+class ReportSummary(BaseModel):
+    session_id: str
+    summary: str                     # 세션 총평 (한두 문장)
+    items: list[ReportSummaryItem]    # 빈도순 정리된 패턴 목록
