@@ -7,6 +7,36 @@ import { useProfileOrFallback } from '../state/ProfileContext.jsx'
 import { fetchSessions } from '../api/sessions.js'
 import { useExercise } from '../state/ExerciseContext.jsx'
 
+const POPUP_DURATION_MS = 5000 // 팝업 노출 시간(4~5초 범위 중 5초로 시작)
+
+// 두 피드백 메시지가 "같은 내용"인지: area 일치 + evidence 키 대분류(prefix)가 겹치면 같은 내용으로 본다.
+// (LLM이 매번 다른 문장을 생성해서 텍스트 완전일치로는 못 묶으므로 구조화된 필드로 판정)
+function isSimilarFeedback(a, b) {
+  if (a.area !== b.area) return false
+  const prefixes = (m) => new Set((m.evidence ?? []).map((e) => e.split('.')[0]))
+  const pa = prefixes(a)
+  for (const p of prefixes(b)) {
+    if (pa.has(p)) return true
+  }
+  return false
+}
+
+// 3n번째 rep 시점에 팝업으로 띄울 메시지 하나를 고른다.
+// buffer: 직전 트리거 이후 도착한 메시지들 / fallbackList: 세션 전체 이력(최신이 앞)
+function pickPopupCandidate(buffer, fallbackList) {
+  const candidates = buffer.filter((m) => m.type === 'suggestion')
+  if (candidates.length === 1) return candidates[0]
+  if (candidates.length > 1) {
+    for (let i = candidates.length - 1; i > 0; i--) {
+      for (let j = i - 1; j >= 0; j--) {
+        if (isSimilarFeedback(candidates[i], candidates[j])) return candidates[i]
+      }
+    }
+    return candidates[candidates.length - 1] // 겹치는 게 없으면 구간 내 최신 것
+  }
+  return fallbackList[0] ?? null // 구간에 popup 후보가 아예 없으면 전체 이력 중 최신 것
+}
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
 // API_BASE_URL이 있으면 그걸 ws(s)로 바꿔 쓰고, 비어 있으면(=Vite 프록시 사용)
 // 현재 페이지 origin에서 ws/wss를 유도한다. https 페이지(폰)면 wss로 맞춰진다.
@@ -36,6 +66,21 @@ export default function LiveExercise() {
   const [showEnd, setShowEnd] = useState(false)
   // 지금까지 도착한 FeedbackMessage 들 (최신이 위로)
   const [messages, setMessages] = useState([])
+  const messagesRef = useRef([]) // WS 콜백에서 최신 messages를 읽기 위한 미러
+  useEffect(() => {
+    messagesRef.current = messages
+  }, [messages])
+
+  // 팝업(행동교정): 3n번째 rep 직후 표시되는 메시지 하나
+  const [popup, setPopup] = useState(null)
+  const popupTimeoutRef = useRef(null)
+  const pendingRef = useRef([]) // 마지막 3n 트리거 이후 도착한 메시지 버퍼
+  const totalRepsRef = useRef(0) // 세션 누적 rep (윈도우마다 리셋되는 서버 값과 별개)
+  useEffect(() => {
+    return () => {
+      if (popupTimeoutRef.current) clearTimeout(popupTimeoutRef.current)
+    }
+  }, [])
 
   const [sessionId, setSessionId] = useState(null)
   const [wsStatus, setWsStatus] = useState('connecting') // 'connecting' | 'ready' | 'error'
@@ -111,6 +156,24 @@ export default function LiveExercise() {
         const data = JSON.parse(event.data)
         if (data.window_ready) {
           setMessages((prev) => [...data.messages, ...prev])
+          pendingRef.current = [...pendingRef.current, ...data.messages]
+
+          if (typeof data.rep_count === 'number' && data.rep_count > 0) {
+            const prevTotal = totalRepsRef.current
+            const nextTotal = prevTotal + data.rep_count
+            totalRepsRef.current = nextTotal
+
+            // 누적 rep이 3의 배수 경계를 넘었으면 팝업 트리거
+            if (Math.floor(prevTotal / 3) !== Math.floor(nextTotal / 3)) {
+              const chosen = pickPopupCandidate(pendingRef.current, messagesRef.current)
+              pendingRef.current = []
+              if (chosen) {
+                if (popupTimeoutRef.current) clearTimeout(popupTimeoutRef.current)
+                setPopup({ ...chosen, _popupKey: Date.now() })
+                popupTimeoutRef.current = setTimeout(() => setPopup(null), POPUP_DURATION_MS)
+              }
+            }
+          }
         } else if (data.error) {
           setWsError(data.error)
         }
@@ -301,14 +364,14 @@ export default function LiveExercise() {
           }}
         />
 
-        {/* 피드백을 카메라 위 반투명 오버레이로(최신 2개만) 얹어
-            카메라 세로 공간을 카메라 준비 화면과 동일하게 확보한다.
-            전체 목록은 세션 종료 후 리포트에서 보여준다. */}
-        <div className="fb-overlay">
-          {messages.slice(0, 2).map((m, i) => (
-            <FeedbackCard key={messages.length - i} msg={m} />
-          ))}
-        </div>
+        {/* 팝업(행동교정): 3n번째 rep 직후 상단에 잠깐 떴다 fade-out.
+            상시 노출 대신 트리거 시점에만 하나씩 보여줘서 로그 과다 노출을 줄인다.
+            전체 목록(총로그탭)은 별도로 제공된다. */}
+        {popup && (
+          <div className="fb-popup" key={popup._popupKey}>
+            <FeedbackCard msg={popup} />
+          </div>
+        )}
       </div>
       {wsStatus === 'error' && (
         <p className="text-muted" style={{ margin: 0 }}>

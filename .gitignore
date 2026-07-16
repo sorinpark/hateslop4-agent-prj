@@ -220,3 +220,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Personal task notes (not shared)
+feedback_part3_C.md

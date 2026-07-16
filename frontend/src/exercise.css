@@ -344,20 +344,19 @@
   padding: 24px 0;
 }
 
-/* 카메라 위 피드백 오버레이 (최신 1~2개). 반투명 + 블러로 영상 위에 얹힌다.
-   상단 진단 오버레이·일시정지 배지와 겹치지 않게 하단에 붙인다. */
-.fb-overlay {
+/* ── C: 로그/팝업 섹션 (LiveExercise 화면) ──────────────────────── */
+/* 팝업(행동교정) — 3n번째 rep 직후 상단에 떴다가 일정 시간 뒤 fade-out.
+   진단 오버레이(top-right)·일시정지 배지(top-left)와 안 겹치게 그 아래쪽에 둔다. */
+.fb-popup {
   position: absolute;
   left: 8px;
   right: 8px;
-  bottom: 8px;
-  z-index: 3;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  top: 44px;
+  z-index: 4;
   pointer-events: none; /* 영상 터치(일시정지 등)를 막지 않게 */
+  animation: fb-popup-fade 5s ease forwards;
 }
-.fb-overlay .fb {
+.fb-popup .fb {
   margin: 0;
   padding: 10px 12px;
   background: rgb(0 0 0 / 60%);
@@ -365,9 +364,15 @@
   backdrop-filter: blur(6px);
   border-color: rgb(255 255 255 / 12%);
 }
-.fb-overlay .fb__text {
+.fb-popup .fb__text {
   color: #fff;
   font-size: 14px;
+}
+@keyframes fb-popup-fade {
+  0% { opacity: 0; transform: translateY(-6px); }
+  8% { opacity: 1; transform: translateY(0); }
+  80% { opacity: 1; }
+  100% { opacity: 0; }
 }
 
 /* 하단 액션 버튼 줄 — 카메라 준비 화면과 동일하게 작게. 항상 화면 하단에 */
