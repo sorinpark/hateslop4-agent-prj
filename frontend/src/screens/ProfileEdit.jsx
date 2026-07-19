@@ -1,8 +1,11 @@
 import { useState } from 'react'
 import { useProfile, useProfileOrFallback } from '../state/ProfileContext.jsx'
+import InjuryAccordion, {
+  makeEmptyInjury,
+} from '../components/InjuryAccordion.jsx'
 import { sideLabel, patternLabel } from '../dummy.js'
 
-/* 프로필 탭 — 부상 이력 조회/수정.
+/* 프로필 탭 — 부상 이력 조회/수정 (최대 3건).
    기본은 보기 모드(읽기 전용)이고, 우측 상단 "수정하기"를 눌러야 편집 폼이
    열린다. 현재 관찰 프로필의 injuries 를 폼 초기값으로 채우고, 저장 시
    updateInjuries 로 반영(localStorage 영속). 이 정보는 운동/리포트로 흐르고,
@@ -12,38 +15,32 @@ export default function ProfileEdit() {
   const { updateInjuries } = useProfile()
   const profile = useProfileOrFallback()
 
-  // 현재 injuries[0]를 편집(MVP는 부상 1건 편집). 폼 상태로 복사.
-  const first = profile.injuries[0] ?? {
-    part: '',
-    side: 'right',
-    condition: '',
-    discomfort: 3,
-  }
-  const makeFormState = () => ({
-    part: first.part ?? '',
-    side: first.side ?? 'right',
-    condition: first.condition ?? '',
-    discomfort: first.discomfort ?? 3,
-  })
+  const makeFormState = () =>
+    profile.injuries.length > 0
+      ? profile.injuries.map((inj) => ({
+          part: inj.part ?? '',
+          side: inj.side ?? 'right',
+          condition: inj.condition ?? '',
+          discomfort: inj.discomfort ?? 3,
+        }))
+      : [makeEmptyInjury()]
 
   const [mode, setMode] = useState('view') // 'view' | 'edit'
-  const [injury, setInjury] = useState(makeFormState)
+  const [injuries, setInjuries] = useState(makeFormState)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState(null)
 
-  const set = (key, value) => {
-    setInjury((prev) => ({ ...prev, [key]: value }))
-  }
-  const canSave = injury.part.trim().length > 0
+  const filledInjuries = injuries.filter((inj) => inj.part.trim().length > 0)
+  const canSave = filledInjuries.length > 0
 
   const startEdit = () => {
-    setInjury(makeFormState())
+    setInjuries(makeFormState())
     setSaveError(null)
     setMode('edit')
   }
 
   const cancelEdit = () => {
-    setInjury(makeFormState())
+    setInjuries(makeFormState())
     setSaveError(null)
     setMode('view')
   }
@@ -52,14 +49,14 @@ export default function ProfileEdit() {
     setSaving(true)
     setSaveError(null)
     try {
-      await updateInjuries([
-        {
-          part: injury.part.trim(),
-          side: injury.side,
-          condition: injury.condition.trim() || null,
-          discomfort: injury.discomfort,
-        },
-      ])
+      await updateInjuries(
+        filledInjuries.map((inj) => ({
+          part: inj.part.trim(),
+          side: inj.side,
+          condition: inj.condition.trim() || null,
+          discomfort: inj.discomfort,
+        })),
+      )
       setSaving(false)
       setMode('view')
     } catch (err) {
@@ -107,28 +104,41 @@ export default function ProfileEdit() {
           <>
             <p className="subtitle">현재 등록된 부상 정보예요.</p>
 
-            <div className="info-grid">
-              <div className="info-grid__item">
-                <div className="info-grid__label">불편한 부위</div>
-                <div className="info-grid__value">{first.part || '미입력'}</div>
-              </div>
-              <div className="info-grid__item">
-                <div className="info-grid__label">방향</div>
-                <div className="info-grid__value">
-                  {sideLabel[first.side] ?? first.side}
+            {profile.injuries.map((inj, i) => (
+              <div key={i} style={{ marginBottom: 16 }}>
+                {profile.injuries.length > 1 && (
+                  <h3 className="field__label" style={{ marginTop: 0 }}>
+                    부상 {i + 1}
+                  </h3>
+                )}
+                <div className="info-grid" style={{ marginBottom: 0 }}>
+                  <div className="info-grid__item">
+                    <div className="info-grid__label">불편한 부위</div>
+                    <div className="info-grid__value">
+                      {inj.part || '미입력'}
+                    </div>
+                  </div>
+                  <div className="info-grid__item">
+                    <div className="info-grid__label">방향</div>
+                    <div className="info-grid__value">
+                      {sideLabel[inj.side] ?? inj.side}
+                    </div>
+                  </div>
+                  <div className="info-grid__item">
+                    <div className="info-grid__label">추정 병명</div>
+                    <div className="info-grid__value">
+                      {inj.condition || '미입력'}
+                    </div>
+                  </div>
+                  <div className="info-grid__item">
+                    <div className="info-grid__label">불편감 정도</div>
+                    <div className="info-grid__value">
+                      {inj.discomfort} / 5
+                    </div>
+                  </div>
                 </div>
               </div>
-              <div className="info-grid__item">
-                <div className="info-grid__label">추정 병명</div>
-                <div className="info-grid__value">
-                  {first.condition || '미입력'}
-                </div>
-              </div>
-              <div className="info-grid__item">
-                <div className="info-grid__label">불편감 정도</div>
-                <div className="info-grid__value">{first.discomfort} / 5</div>
-              </div>
-            </div>
+            ))}
           </>
         ) : (
           <>
@@ -136,70 +146,7 @@ export default function ProfileEdit() {
               여기서 부상 정보를 바꾸면 운동 중 관찰 기준과 리포트에 바로 반영돼요.
             </p>
 
-            {/* part */}
-            <div className="field">
-              <label className="field__label">불편한 부위</label>
-              <input
-                className="input"
-                placeholder="예: 발목, 무릎, 손목"
-                value={injury.part}
-                onChange={(e) => set('part', e.target.value)}
-              />
-            </div>
-
-            {/* side */}
-            <div className="field">
-              <label className="field__label">방향</label>
-              <div className="segment">
-                {['left', 'right', 'both'].map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    className={
-                      'segment__btn' + (injury.side === s ? ' segment__btn--on' : '')
-                    }
-                    onClick={() => set('side', s)}
-                  >
-                    {sideLabel[s]}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* condition (선택) */}
-            <div className="field">
-              <label className="field__label">
-                추정 병명 <span className="text-muted">(선택)</span>
-              </label>
-              <input
-                className="input"
-                placeholder="예: 족저근막염"
-                value={injury.condition}
-                onChange={(e) => set('condition', e.target.value)}
-              />
-            </div>
-
-            {/* discomfort */}
-            <div className="field">
-              <label className="field__label">
-                불편감 정도 <span className="text-muted">(1 약함 ~ 5 심함)</span>
-              </label>
-              <div className="segment">
-                {[1, 2, 3, 4, 5].map((n) => (
-                  <button
-                    key={n}
-                    type="button"
-                    className={
-                      'segment__btn' +
-                      (injury.discomfort === n ? ' segment__btn--on' : '')
-                    }
-                    onClick={() => set('discomfort', n)}
-                  >
-                    {n}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <InjuryAccordion injuries={injuries} onChange={setInjuries} />
           </>
         )}
 
