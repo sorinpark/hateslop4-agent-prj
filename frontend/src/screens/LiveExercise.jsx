@@ -69,12 +69,19 @@ export default function LiveExercise() {
   const navigate = useNavigate()
   const { exercise } = useExercise()
   const profile = useProfileOrFallback()
-  const { videoRef, canvasRef, landmarks, confidence, status, cameraStream } =
-    usePoseCamera()
-  const bgVideoRef = useRef(null)
   const [elapsed, setElapsed] = useState(0) // 초
   const [paused, setPaused] = useState(false)
   const [showEnd, setShowEnd] = useState(false)
+  // 총로그탭: 3rep 구간마다 dedupe된 메시지가 쌓이는 세션 전체 이력 (최신이 위)
+  const [logEntries, setLogEntries] = useState([])
+  const [showLog, setShowLog] = useState(false)
+
+  // 셋 중 하나라도 켜지면 화면을 얼리고(카메라/인식 정지) 서버 전송도 멈춘다.
+  const cameraPaused = paused || showEnd || showLog
+
+  const { videoRef, canvasRef, landmarks, confidence, status, cameraStream } =
+    usePoseCamera(cameraPaused)
+  const bgVideoRef = useRef(null)
   // 지금까지 도착한 FeedbackMessage 들 (최신이 위로)
   const [messages, setMessages] = useState([])
   const messagesRef = useRef([]) // WS 콜백에서 최신 messages를 읽기 위한 미러
@@ -88,9 +95,6 @@ export default function LiveExercise() {
   const pendingRef = useRef([]) // 마지막 3n 트리거 이후 도착한 메시지 버퍼
   const totalRepsRef = useRef(0) // 세션 누적 rep (윈도우마다 리셋되는 서버 값과 별개)
 
-  // 총로그탭: 3rep 구간마다 dedupe된 메시지가 쌓이는 세션 전체 이력 (최신이 위)
-  const [logEntries, setLogEntries] = useState([])
-  const [showLog, setShowLog] = useState(false)
   useEffect(() => {
     return () => {
       if (popupTimeoutRef.current) clearTimeout(popupTimeoutRef.current)
@@ -110,14 +114,26 @@ export default function LiveExercise() {
     bgVideo.srcObject = cameraStream
     bgVideo.play().catch(() => {})
   }, [cameraStream])
+
+  // usePoseCamera의 메인 video와 마찬가지로, 배경 video도 같이 얼려야 화면
+  // 전체가 정지한 것처럼 보인다(안 그러면 배경만 계속 살아 움직임).
+  useEffect(() => {
+    const bgVideo = bgVideoRef.current
+    if (!bgVideo) return
+    if (cameraPaused) {
+      bgVideo.pause()
+    } else {
+      bgVideo.play().catch(() => {})
+    }
+  }, [cameraPaused])
   const closingRef = useRef(false) // endSession에서 정상 종료 중임을 표시
 
-  // 1초마다 타이머 (일시정지/팝업 중엔 멈춤)
+  // 1초마다 타이머 (일시정지/종료확인/상세로그 중엔 멈춤)
   useEffect(() => {
-    if (paused || showEnd) return
+    if (cameraPaused) return
     const id = setInterval(() => setElapsed((s) => s + 1), 1000)
     return () => clearInterval(id)
-  }, [paused, showEnd])
+  }, [cameraPaused])
 
   // 세션 시작 -> WebSocket 연결.
   // StrictMode(dev)는 이 effect를 [마운트→언마운트→재마운트]로 두 번 돌린다.
@@ -238,9 +254,9 @@ export default function LiveExercise() {
   const MIN_SEND_INTERVAL_MS = 80 // 약 12fps
   const MAX_BUFFERED_BYTES = 200 * 1024 // 송신 버퍼가 이보다 밀리면 프레임 드롭
   useEffect(() => {
-    // showEnd(종료 확인 팝업)도 일시정지와 동일하게 전송을 막는다 —
-    // 예전엔 여기서 paused만 봐서, 종료 팝업이 떠 있는 동안에도 프레임이 계속 나가고 있었다.
-    if (paused || showEnd || wsStatus !== 'ready') return
+    // 일시정지/종료확인/상세로그 중 어느 것이든 켜져 있으면 전송을 막는다 —
+    // 예전엔 paused/showEnd만 봐서, 상세로그를 보는 동안엔 계속 전송되고 있었다.
+    if (cameraPaused || wsStatus !== 'ready') return
     if (landmarks == null) return
     const now = performance.now()
     if (now - lastSentAtRef.current < MIN_SEND_INTERVAL_MS) return
@@ -269,7 +285,7 @@ export default function LiveExercise() {
     // confidence/status는 로그 출력에만 쓰고, 그것 때문에 이 effect가 다시 돌 필요는
     // 없다(전송 타이밍은 landmarks 갱신에만 반응하면 충분) — 그래서 deps에서 뺀다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [landmarks, paused, showEnd, wsStatus])
+  }, [landmarks, cameraPaused, wsStatus])
 
   const mmss = `${String(Math.floor(elapsed / 60)).padStart(2, '0')}:${String(
     elapsed % 60,
