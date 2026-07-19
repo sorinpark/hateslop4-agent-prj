@@ -1,5 +1,11 @@
 # 운동별 관절 인식 확장 (plus_exercise)
 
+### 테스트 방법
+cd backend/vision
+python category_tuner.py {운동카테고리 목록}
+
+q 키를 누르면 화면 종료되고, csv파일을 만듦. 이 csv파일을 AI에게 넣어서 임계값을 조정
+
 ## 1. 배경 / 필요성
 
 현재 프론트엔드(`frontend/src/exercises.js`)는 42개 운동 중 하나를 골라 실시간 운동 화면(`LiveExercise.jsx`)으로 넘어갈 수 있다. 선택한 운동의 `slug`는 `/session/start`, `/ws/exercise`를 통해 백엔드까지 전달된다.
