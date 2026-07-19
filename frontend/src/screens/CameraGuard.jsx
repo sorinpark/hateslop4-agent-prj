@@ -203,8 +203,9 @@ export default function CameraGuard() {
       </div>
 
       <div className="screen__footer">
-        {/* 캡처됐을 때만 '다시 맞추기'가 생기며, 두 버튼을 가로로 나란히 둔다 */}
-        <div className={captured ? 'btn-row' : ''}>
+        {/* 3버튼 균등폭 그리드. 캡처 전엔 '다시 맞추기'가 없는 대신 '운동 시작'이
+            그 칸까지 넓게 차지해서, 버튼 1개당 폭은 캡처 여부와 무관하게 동일하다. */}
+        <div className="cam-actions">
           {captured && (
             <button className="btn btn--ghost" onClick={retake}>
               다시 맞추기
@@ -214,8 +215,17 @@ export default function CameraGuard() {
             className="btn btn--primary"
             disabled={!canStart}
             onClick={() => navigate('/app/exercise/live')}
+            style={{ gridColumn: captured ? 'auto' : 'span 2' }}
           >
             {canStart ? '운동 시작' : '전신이 잡히면 시작할 수 있어요'}
+          </button>
+          {/* 탭바가 없는 화면이라, 나가는 길을 명시적으로 둔다 */}
+          <button
+            type="button"
+            className="btn btn--ghost"
+            onClick={() => navigate('/app/exercise')}
+          >
+            취소
           </button>
         </div>
       </div>

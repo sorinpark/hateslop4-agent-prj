@@ -90,6 +90,17 @@
   font-size: 14px;
   border-radius: 10px;
 }
+/* 다시 맞추기/운동 시작/취소 3버튼 균등폭 그리드.
+   캡처 전엔 '다시 맞추기'가 없어 '운동 시작'이 grid-column: span 2로
+   그 자리까지 차지하므로, 버튼 1개당 폭이 상태와 무관하게 항상 동일하다. */
+.cam-actions {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+.cam-actions .btn {
+  width: 100%;
+}
 /* 카메라 위 안내(운동별 촬영 팁): 작게 2줄 정도로 */
 .cam-hint {
   margin: 0;
