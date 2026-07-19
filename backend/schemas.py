@@ -46,6 +46,9 @@ class Window(BaseModel):
     start_s: float
     end_s: float
     rep_count: int
+    # 등척성(hold) 카테고리용 - 이 윈도우 동안 "허용 범위 안에서 자세를 유지한" 누적 초.
+    # rep 카테고리는 항상 None(안 쓴다). plus_exercise.md 1단계에서 추가.
+    hold_seconds: float | None = None
 
 
 class Confidence(BaseModel):

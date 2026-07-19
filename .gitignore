@@ -7,6 +7,9 @@ __pycache__/
 *.task
 *.db
 
+# 카테고리 임계값 튜닝 도구(category_tuner.py)가 남기는 개인 테스트 로그
+backend/vision/tuning_logs/
+
 # C extensions
 *.so
 

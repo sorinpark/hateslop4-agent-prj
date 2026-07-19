@@ -334,7 +334,7 @@ async def ws_exercise(websocket: WebSocket, session_id: str, exercise: str = "sq
     await websocket.accept()
     print(f"[ws] 연결됨 session_id={session_id}", flush=True)
     _ws_sessions[session_id] = {
-        "accumulator": WindowAccumulator(window_seconds=5.0),
+        "accumulator": WindowAccumulator(window_seconds=5.0, exercise=exercise),
         "exercise": exercise,
         "profile": None,
     }
