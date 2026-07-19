@@ -95,11 +95,11 @@ export default function ObservationProfile() {
         {/* injuries 요약 */}
         <div className="card card--soft">
           {profile.injuries.map((inj, i) => (
-            <p key={i} className="focus-reason" style={{ marginTop: i ? 6 : 0 }}>
+            <div key={i} className="focus-reason" style={{ marginTop: i ? 6 : 0 }}>
               {sideLabel[inj.side]} {inj.part}
               {inj.condition ? ` · ${inj.condition}` : ''} · 불편감{' '}
               {inj.discomfort}/5
-            </p>
+            </div>
           ))}
         </div>
 

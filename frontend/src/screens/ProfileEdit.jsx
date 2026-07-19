@@ -3,7 +3,7 @@ import { useProfile, useProfileOrFallback } from '../state/ProfileContext.jsx'
 import InjuryAccordion, {
   makeEmptyInjury,
 } from '../components/InjuryAccordion.jsx'
-import { sideLabel, patternLabel } from '../dummy.js'
+import { sideLabel, patternLabel, categoryLabel } from '../dummy.js'
 
 /* 프로필 탭 — 부상 이력 조회/수정 (최대 3건).
    기본은 보기 모드(읽기 전용)이고, 우측 상단 "수정하기"를 눌러야 편집 폼이
@@ -104,41 +104,19 @@ export default function ProfileEdit() {
           <>
             <p className="subtitle">현재 등록된 부상 정보예요.</p>
 
-            {profile.injuries.map((inj, i) => (
-              <div key={i} style={{ marginBottom: 16 }}>
-                {profile.injuries.length > 1 && (
-                  <h3 className="field__label" style={{ marginTop: 0 }}>
-                    부상 {i + 1}
-                  </h3>
-                )}
-                <div className="info-grid" style={{ marginBottom: 0 }}>
-                  <div className="info-grid__item">
-                    <div className="info-grid__label">불편한 부위</div>
-                    <div className="info-grid__value">
-                      {inj.part || '미입력'}
-                    </div>
-                  </div>
-                  <div className="info-grid__item">
-                    <div className="info-grid__label">방향</div>
-                    <div className="info-grid__value">
-                      {sideLabel[inj.side] ?? inj.side}
-                    </div>
-                  </div>
-                  <div className="info-grid__item">
-                    <div className="info-grid__label">추정 병명</div>
-                    <div className="info-grid__value">
-                      {inj.condition || '미입력'}
-                    </div>
-                  </div>
-                  <div className="info-grid__item">
-                    <div className="info-grid__label">불편감 정도</div>
-                    <div className="info-grid__value">
-                      {inj.discomfort} / 5
-                    </div>
-                  </div>
+            <div className="card card--soft">
+              {profile.injuries.map((inj, i) => (
+                <div
+                  key={i}
+                  className="focus-reason"
+                  style={{ marginTop: i ? 6 : 0 }}
+                >
+                  {sideLabel[inj.side] ?? inj.side} {inj.part}
+                  {inj.condition ? ` · ${inj.condition}` : ''} · 불편감{' '}
+                  {inj.discomfort}/5
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </>
         ) : (
           <>
@@ -150,18 +128,43 @@ export default function ProfileEdit() {
           </>
         )}
 
-        {/* 현재 관찰 프로필 요약(반영 결과) */}
-        <h3 className="field__label" style={{ marginTop: 8 }}>
-          현재 관찰 패턴
-        </h3>
-        <div className="tags">
-          {profile.watch_patterns.map((p) => (
-            <span className="tag" key={p}>
-              {patternLabel[p] ?? p}
-            </span>
-          ))}
-        </div>
-        <span className="note-tag">{profile.disclaimer}</span>
+        {/* 현재 관찰 프로필(반영 결과) — 부상 수정 시 저장과 함께 자동 갱신됨.
+            수정 중엔 아직 반영 전 정보라 혼동을 줄 수 있어 보기 모드에서만 노출. */}
+        {mode === 'view' && (
+          <>
+            <h3 className="field__label" style={{ marginTop: 8 }}>
+              관찰 프로필
+            </h3>
+            {profile.focus_areas.map((fa, i) => (
+              <div className="card" key={i}>
+                <div className="focus-row">
+                  <span className={`dot dot--${fa.category}`} />
+                  <div>
+                    <div className="focus-area">
+                      {fa.area}{' '}
+                      <span className="text-muted">
+                        ({categoryLabel[fa.category]})
+                      </span>
+                    </div>
+                    <div className="focus-reason">{fa.reason}</div>
+                  </div>
+                </div>
+              </div>
+            ))}
+
+            <h3 className="field__label" style={{ marginTop: 8 }}>
+              주의 깊게 볼 패턴
+            </h3>
+            <div className="tags">
+              {profile.watch_patterns.map((p) => (
+                <span className="tag" key={p}>
+                  {patternLabel[p] ?? p}
+                </span>
+              ))}
+            </div>
+            <span className="note-tag">{profile.disclaimer}</span>
+          </>
+        )}
       </div>
 
       {mode === 'edit' && (

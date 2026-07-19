@@ -35,7 +35,6 @@
   - 부위 필터(칩, 중복선택) → 리스트 필터 → 하나 선택 → "이 운동으로 시작"
   - 선택한 운동을 `ExerciseContext`(신설) 또는 라우터 state로 다음 화면에 전달
 - [ ] **ExerciseHome / 흐름 연결**: 스쿼트 하드코딩 제거, 선택한 운동이 CameraGuard·LiveExercise로 흐르게
-- [ ] **부상 다중입력**(피드백 1): ProfileEdit/InjuryInput에서 부상 여러 곳 입력(toggle로 항목 추가)
   - `schemas.InjuryInput`은 그대로(리스트라 이미 다건 지원), 프론트 폼만 다건으로
 - [ ] (추후) 운동별 각도·rep 규칙 — 지금은 스쿼트 로직 유지, 구조만 "운동별로 갈아끼울 수 있게"
 
