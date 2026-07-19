@@ -6,6 +6,71 @@ python category_tuner.py {운동카테고리 목록}
 
 q 키를 누르면 화면 종료되고, csv파일을 만듦. 이 csv파일을 AI에게 넣어서 임계값을 조정
 
+## 0. 담당자별 운동 목록 + 임계값 조정 관련 정리 (요약)
+
+### A — 등척성 유지형(8개) + 타격형(2개)
+
+**등척성 유지형** — 관찰 관절: 몸통(trunk, 어깨-힙-발목), rep이 아니라 "일직선 유지 시간" 측정
+1. 체스트 익스팬션 (chest-expansions)
+2. 브릿지 (bridges)
+3. 슈퍼맨 (superman)
+4. 체스트 스퀴즈 (chest-squeezes)
+5. 백 리프트 (back-lifts)
+6. 교차 팔다리 플랭크 (alt-arm-leg-plank)
+7. 숄더 탭 (shoulder-taps)
+8. 엘보 플랭크 (elbow-plank)
+
+**타격형** — 관찰 관절: 팔꿈치(좌우 번갈아 치는 리듬 주의)
+1. 백피스트 (backfists)
+2. 펀치 (punches)
+
+### B — 복합/전신형(4개) + 팔 밀기형(7개)
+
+**복합/전신형** — 관찰 관절: 여러 관절 조합(운동별로 다를 수 있음, 가장 까다로움)
+1. 마운틴 클라이머 (climbers)
+2. 겟업 (get-ups)
+3. 플랭크 점프 인 (plank-jump-ins)
+4. 사이드 투 사이드 찹 (side-to-side-chops)
+
+**팔 밀기형** — 관찰 관절: 팔꿈치
+1. 푸시업 (push-ups)
+2. 클로즈그립 푸시업 (close-grip-push-ups)
+3. 트라이셉 딥스 (tricep-dips)
+4. 트라이셉 익스텐션 (tricep-extensions)
+5. 파이크 푸시업 (pike-push-ups)
+6. 슈도 플란체 (pseudo-planche)
+7. 박수 푸시업 (clapping-push-ups)
+
+### C — 팔 당기기형(7개) + 코어 굽힘형(5개)
+
+**팔 당기기형** — 관찰 관절: 팔꿈치 + 어깨
+1. 친업/언더그립 턱걸이 (chin-ups)
+2. 풀업/턱걸이 (pull-ups)
+3. 견갑 슈러그 (scapular-shrugs)
+4. 도어프레임 로우 (doorframe-rows)
+5. 바디 로우/인버티드 로우 (body-rows)
+6. 시티드 풀업 (sitting-pull-ups)
+7. 리버스 엔젤 (reverse-angels)
+
+**코어 굽힘형** — 관찰 관절: 몸통-힙 각도
+1. 윗몸일으키기 (sit-ups)
+2. 리버스 크런치 (reverse-crunches)
+3. 바이시클 크런치 (bicycle-crunches)
+4. 플러터 킥 (flutter-kicks)
+5. 레그 레이즈 (leg-raises)
+
+### 임계값 조정, 카테고리당 한 번이면 되는가?
+
+기본 구조상 `CategoryConfig`(임계값)는 **카테고리당 딱 한 세트**이고, 그 카테고리에 속한 운동들은 전부 같은 값을 공유한다. 따라서 절차는:
+
+1. 카테고리 파일 하나 만들고 임계값 초안 채움
+2. 아무 운동 하나로 `category_tuner.py` 돌리면서 rep count/hold 시간이 맞을 때까지 값 반복 조정
+3. 값이 맞았다 싶으면, **그 카테고리에 속한 나머지 운동들도 각각 최소 1회씩** `category_tuner.py`로 실측해서, 이 한 세트의 임계값이 카테고리 내 다른 운동에도 통하는지 확인
+
+즉 "임계값 자체를 정하는 작업"은 카테고리당 한 세트를 목표로 하지만, 그 한 세트가 카테고리 내 모든 운동에 맞는지 검증하려면 운동 하나하나를 다 돌려봐야 한다. 다만 문서에 미리 경고된 예외가 있다:
+- **복합/전신형(B)**: 운동 4개가 서로 많이 달라 하나의 임계값으로 안 묶일 수 있음 — 안 맞으면 카테고리를 더 쪼개거나 운동별 예외를 둘 것
+- **타격형(A)**: 좌우 번갈아 치는 동작이라 "좌우 평균" 방식이 안 맞을 수 있음 — 이 경우 `feature_extractor.py`까지 손대는 예외 로직이 필요할 수 있음
+
 ## 1. 배경 / 필요성
 
 현재 프론트엔드(`frontend/src/exercises.js`)는 42개 운동 중 하나를 골라 실시간 운동 화면(`LiveExercise.jsx`)으로 넘어갈 수 있다. 선택한 운동의 `slug`는 `/session/start`, `/ws/exercise`를 통해 백엔드까지 전달된다.
