@@ -121,7 +121,8 @@ export default function RecordsCalendar() {
           <p className="text-muted">{error}</p>
         ) : recent.length === 0 ? (
           <div className="detail-empty">
-            아직 운동 기록이 없어요. 운동을 마치면 여기에 쌓여요.
+            아직 운동 기록이 없어요.
+            <br />운동을 마치면 여기에 쌓여요.
           </div>
         ) : (
           recent.map((s) => (
