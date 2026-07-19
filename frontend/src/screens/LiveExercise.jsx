@@ -315,7 +315,7 @@ export default function LiveExercise() {
     }
 
     navigate('/app/records/report', {
-      state: { session, report },
+      state: { session, report, from: 'live' },
     })
   }
 

@@ -1,16 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import FeedbackCard from '../components/FeedbackCard.jsx'
-import { fmtDuration } from '../dummy.js'
+import { fmtDuration, fmtTime } from '../dummy.js'
 import { fetchSessions, fetchSessionFeedback } from '../api/sessions.js'
 import { getDeviceId } from '../state/storage.js'
-
-// "2026-07-05T09:03:21" 형태의 started_at -> "09:03"
-function fmtStartedAt(startedAt) {
-  const d = new Date(startedAt)
-  const p = (n) => String(n).padStart(2, '0')
-  return `${p(d.getHours())}:${p(d.getMinutes())}`
-}
 
 /* 날짜별 피드백 상세 — 캘린더/리스트에서 선택한 날짜의 세션 리포트.
    URL: /app/records/:date (YYYY-MM-DD)
@@ -83,7 +76,7 @@ export default function SessionDetail() {
             {sessions.map((session) => (
               <div key={session.session_id}>
                 {sessions.length > 1 && (
-                  <p className="text-muted">{fmtStartedAt(session.started_at)}</p>
+                  <p className="text-muted">{fmtTime(session.started_at)}</p>
                 )}
 
                 <div className="session-meta">
