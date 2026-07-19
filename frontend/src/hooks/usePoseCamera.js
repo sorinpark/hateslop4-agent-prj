@@ -68,7 +68,9 @@ async function applyMinimumCameraZoom(stream) {
 
 // 웹캠을 열고 MediaPipe PoseLandmarker로 매 프레임 랜드마크를 추출,
 // canvas에 스켈레톤을 그려주는 공용 훅.
-export function usePoseCamera() {
+// paused: true면 인식 루프를 건너뛰고 video도 멈춰서, 화면이 그 순간 프레임에
+// 얼어붙는다(카메라 스트림 자체는 안 끈다 — 재시작 지연/깜빡임 방지).
+export function usePoseCamera(paused = false) {
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
 
@@ -77,6 +79,19 @@ export function usePoseCamera() {
   const [status, setStatus] = useState('loading')
   const [error, setError] = useState(null)
   const [cameraStream, setCameraStream] = useState(null)
+
+  // 메인 설정 effect([] deps)를 재실행하지 않고 렌더 루프에서만 최신값을 보게 ref로 미러링
+  const pausedRef = useRef(paused)
+  useEffect(() => {
+    pausedRef.current = paused
+    const video = videoRef.current
+    if (!video) return
+    if (paused) {
+      video.pause()
+    } else {
+      video.play().catch(() => {})
+    }
+  }, [paused])
 
   useEffect(() => {
     let cancelled = false
@@ -133,6 +148,13 @@ export function usePoseCamera() {
 
         const renderLoop = () => {
           if (cancelled) return
+
+          // paused면 인식/그리기를 건너뛴다 — 캔버스가 마지막 프레임 그대로 얼어붙고,
+          // video도 위 pause effect로 멈춰 있어 화면 전체가 정지 상태로 보인다.
+          if (pausedRef.current) {
+            rafId = requestAnimationFrame(renderLoop)
+            return
+          }
 
           const video = videoRef.current
           const result = poseLandmarker.detectForVideo(video, performance.now())

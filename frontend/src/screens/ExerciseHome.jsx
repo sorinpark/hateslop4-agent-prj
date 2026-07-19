@@ -26,8 +26,9 @@ export default function ExerciseHome() {
         <div className="exercise-hero">
           <p className="exercise-hero__name">{exercise.name}</p>
           <p className="exercise-hero__sub">
-            {exercise.parts.join(' · ')} 운동이에요. 다른 운동을 하고 싶으면
-            아래에서 바꿀 수 있어요.
+            {exercise.parts.join(' · ')} 운동이에요.
+            <br />
+            다른 운동을 하고 싶으면 아래에서 바꿀 수 있어요.
           </p>
           <button
             type="button"

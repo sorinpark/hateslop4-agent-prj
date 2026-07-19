@@ -52,7 +52,10 @@ export default function ObservationProfile() {
 
   if (loading) {
     return (
-      <div className="screen">
+      <div
+        className="screen"
+        style={{ alignItems: 'center', justifyContent: 'center' }}
+      >
         <p className="text-muted">관찰 프로필을 만들고 있어요...</p>
       </div>
     )
@@ -92,11 +95,11 @@ export default function ObservationProfile() {
         {/* injuries 요약 */}
         <div className="card card--soft">
           {profile.injuries.map((inj, i) => (
-            <p key={i} className="focus-reason" style={{ marginTop: i ? 6 : 0 }}>
+            <div key={i} className="focus-reason" style={{ marginTop: i ? 6 : 0 }}>
               {sideLabel[inj.side]} {inj.part}
               {inj.condition ? ` · ${inj.condition}` : ''} · 불편감{' '}
               {inj.discomfort}/5
-            </p>
+            </div>
           ))}
         </div>
 

@@ -102,6 +102,11 @@ export function getExerciseById(id) {
   return EXERCISES.find((e) => e.id === id) ?? null
 }
 
+// slug -> 운동 객체 빠른 조회 (백엔드 세션 기록은 slug로 저장됨)
+export function getExerciseBySlug(slug) {
+  return EXERCISES.find((e) => e.slug === slug) ?? null
+}
+
 // 기본 운동(선택 없이 진입했을 때 폴백) = 스쿼트
 export const DEFAULT_EXERCISE =
   EXERCISES.find((e) => e.id === '03_squats') ?? EXERCISES[0]

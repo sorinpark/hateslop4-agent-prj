@@ -144,3 +144,15 @@ export function fmtDuration(sec) {
   const s = sec % 60
   return s ? `${m}분 ${s}초` : `${m}분`
 }
+
+// "2026-07-05T09:03:21" -> "09:03"
+export function fmtTime(startedAt) {
+  const d = new Date(startedAt)
+  const p = (n) => String(n).padStart(2, '0')
+  return `${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
+// "2026-07-05" -> "260705"
+export function fmtYYMMDD(date) {
+  return date.slice(2).replace(/-/g, '')
+}

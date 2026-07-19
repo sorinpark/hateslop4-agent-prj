@@ -30,17 +30,18 @@ export default function App() {
         <Route path="/injury" element={<InjuryInput />} />
         <Route path="/profile" element={<ObservationProfile />} />
 
-        {/* 실시간 운동은 몰입 화면 — 탭바 밖(전체화면) */}
+        {/* 몰입 화면들 — 탭바 밖(전체화면). 탭을 누르면 진행 중인 상태가
+            끊기는 게 부자연스러워서, 명시적인 버튼으로만 나가게 한다. */}
+        <Route path="/app/exercise/camera" element={<CameraGuard />} />
         <Route path="/app/exercise/live" element={<LiveExercise />} />
+        <Route path="/app/records/report" element={<SessionReport />} />
 
         {/* 메인 앱 (하단 탭바) */}
         <Route path="/app" element={<TabLayout />}>
           <Route index element={<Navigate to="exercise" replace />} />
           <Route path="exercise" element={<ExerciseHome />} />
           <Route path="exercise/select" element={<ExerciseSelect />} />
-          <Route path="exercise/camera" element={<CameraGuard />} />
           <Route path="records" element={<RecordsCalendar />} />
-          <Route path="records/report" element={<SessionReport />} />
           <Route path="records/:date" element={<SessionDetail />} />
           <Route path="profile" element={<ProfileEdit />} />
         </Route>
