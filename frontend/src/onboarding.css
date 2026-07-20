@@ -30,6 +30,42 @@
   padding-top: 16px;
 }
 
+/* ── 탭바(운동/기록/프로필) 안의 화면 ────────────────────────────────
+   .tabbed__body 가 이미 아래 64px(탭바) 여백을 확보한다. 그런데 .screen 이
+   100svh 를 요구하면 그 위에 탭바 높이가 더해져 footer(카메라 준비하기 / 프로필
+   저장 등)가 항상 뷰포트 밖으로 밀려 '스크롤해야만 보이는' 문제가 생겼다.
+   → 탭 안에서는 화면을 '뷰포트 - 탭바' 높이로 딱 맞추고, 본문만 스크롤되게 하며
+   footer 는 항상 하단에 고정되어 보이도록 한다. */
+.tabbed .screen {
+  /* .tabbed__body 의 padding-bottom:64px 을 뺀 높이. 전체 화면에 딱 맞음 */
+  min-height: 0;
+  height: calc(100svh - 64px);
+}
+.tabbed .screen__scroll {
+  /* 본문이 넘칠 때 이 영역만 스크롤 (footer 는 안 밀림) */
+  overflow-y: auto;
+  min-height: 0;
+}
+.tabbed .screen__footer {
+  /* 항상 화면 하단(탭바 바로 위)에 보이는 고정 액션 영역 */
+  flex-shrink: 0;
+  padding-top: 12px;
+  /* 스크롤 콘텐츠와 시각적으로 분리 */
+  border-top: 1px solid var(--border-soft);
+  background: var(--bg-screen);
+}
+
+/* 하단 버튼 2개를 가로로 나란히(예: CameraGuard 다시 맞추기 / 운동 시작).
+   .btn 이 width:100% 라서 row 로 그냥 두면 안 되고, 각자 균등폭(flex:1)으로 만든다. */
+.btn-row {
+  display: flex;
+  gap: 10px;
+}
+.btn-row .btn {
+  width: auto;
+  flex: 1;
+}
+
 /* 진행 단계 표시 */
 .steps {
   display: flex;
@@ -83,6 +119,30 @@
 .card--soft {
   background: var(--bg-card-soft);
   border-color: var(--border-soft);
+}
+
+/* 정보 그리드(프로필 보기 모드 등 라벨/값 타일) */
+.info-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.info-grid__item {
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  padding: 12px;
+}
+.info-grid__label {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.info-grid__value {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
 }
 
 /* 버튼 */

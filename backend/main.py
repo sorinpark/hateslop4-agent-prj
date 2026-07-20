@@ -25,15 +25,20 @@ from schemas import (
     FeatureSummary,
     FeedbackMessage,
     FeedbackResponse,
+    ReportSummary,
 )
 import profile as profile_svc
 import feedback as feedback_svc
+import report as report_svc
 from db import repository as db_repo
 
 # vision/ 은 패키지가 아니라 (angles.py 등을 bare import 하는) 스크립트 모음이라,
 # feature_extractor.py 를 그대로 가져오려면 vision/ 자체를 sys.path에 넣어야 한다.
 sys.path.insert(0, str(Path(__file__).resolve().parent / "vision"))
 from feature_extractor import WindowAccumulator  # noqa: E402
+# 개발용 진단(_tuning_info)에서 현재 각도/임계값을 계산하는 데 쓴다.
+from angles import compute_joint_angles  # noqa: E402
+from categories import get_category  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +68,7 @@ def health():
 
 
 @app.post("/profile", response_model=ObservationProfile)
-def create_profile(injuries: list[InjuryInput]):
+def create_profile(injuries: list[InjuryInput], user_id: str = "u_demo"):
     """온보딩 입력 -> 관찰 프로필 생성 (Gemini, 모델은 llm.MODEL).
 
     실제 LLM 호출은 profile.py 가 담당. 프롬프트 규칙(기획.md 10번):
@@ -73,7 +78,7 @@ def create_profile(injuries: list[InjuryInput]):
     if not injuries:
         raise HTTPException(status_code=422, detail="injuries가 비어 있어요.")
     try:
-        profile = profile_svc.create_profile(injuries)
+        profile = profile_svc.create_profile(injuries, user_id=user_id)
     except genai_errors.APIError as e:
         # Gemini 과부하(503)/rate limit(429) 등 -> 503으로 전달(프론트가 재시도 안내)
         code = getattr(e, "code", 503) or 503
@@ -160,6 +165,8 @@ class SessionInfo(BaseModel):
     date: str
     started_at: str
     ended_at: str | None
+    duration_s: float | None
+    rep_count: int
 
 
 @app.post("/session/start", response_model=SessionStartResponse)
@@ -213,6 +220,35 @@ def get_session_feedback(session_id: str):
     return db_repo.get_feedback_by_session(session_id)
 
 
+@app.get("/sessions/{session_id}/report", response_model=ReportSummary)
+def get_session_report(session_id: str):
+    """세션 리포트 화면용: 세션의 피드백 메시지를 LLM 1회 호출로 총평 + 빈도 정리.
+
+    존재하지 않는 session_id면 404. 메시지가 없으면 LLM을 호출하지 않고
+    빈 리포트를 바로 돌려준다(불필요한 호출/쿼터 절약).
+    """
+    if db_repo.get_session(session_id) is None:
+        raise HTTPException(status_code=404, detail="존재하지 않는 session_id예요.")
+
+    messages = db_repo.get_feedback_by_session(session_id)
+    if not messages:
+        return ReportSummary(
+            session_id=session_id,
+            summary="이번 세션에서는 특별히 관찰된 패턴이 없었어요.",
+            items=[],
+        )
+
+    try:
+        return report_svc.create_report_summary(session_id, messages)
+    except genai_errors.APIError as e:
+        # Gemini 과부하(503)/rate limit(429) 등 -> 503으로 전달(프론트가 재시도 안내)
+        code = getattr(e, "code", 503) or 503
+        raise HTTPException(
+            status_code=503 if code in {429, 500, 502, 503, 504} else 502,
+            detail="리포트 요약 생성 중 LLM 호출이 일시적으로 실패했어요. 잠시 후 다시 시도해주세요.",
+        )
+
+
 # ── 실시간 운동 WebSocket ──────────────────────────────────────────────
 # session_id -> {"accumulator": WindowAccumulator, "exercise": str}
 _ws_sessions: dict[str, dict] = {}
@@ -245,6 +281,46 @@ async def _handle_init(websocket: WebSocket, state: dict, data: dict) -> None:
     await websocket.send_json({"ack": True, "profile_loaded": True})
 
 
+def _tuning_info(state: dict, landmarks) -> dict:
+    """폰에서 임계값을 튜닝할 수 있도록, 매 프레임의 판정 근거를 만들어 준다.
+
+    category_tuner.py(PC 웹캠 전용)가 화면에 띄우는 것과 같은 정보를 앱으로도
+    보기 위한 개발용 진단 데이터다. 실측 튜닝이 끝나면 이 함수와 호출부,
+    프론트 오버레이를 같이 제거하면 된다(plus_exercise.md 2단계).
+
+    hold 모드면 지금 각도가 허용 범위 안(IN-RANGE)인지, rep 모드면 down/up 중
+    어느 상태인지를 실시간으로 알려준다.
+    """
+    category = get_category(state["exercise"])
+    angles = compute_joint_angles(landmarks)
+
+    pair = category.hold_joint_pair if category.mode == "hold" else category.rep_joint_pair
+    if not pair:
+        return {}
+
+    values = [angles[j] for j in pair if j in angles]
+    if not values:
+        return {}
+    angle = sum(values) / len(values)
+
+    info = {
+        "category": category.name,
+        "mode": category.mode,
+        # 좌우 평균 각도(판정에 실제로 쓰이는 값)
+        "angle": round(angle, 1),
+        # 어떤 관절을 보고 있는지 ("L_trunk" -> "trunk")
+        "joint": pair[0][2:],
+    }
+    if category.mode == "hold":
+        info["min"] = category.hold_min_deg
+        info["max"] = category.hold_max_deg
+        info["in_range"] = category.hold_min_deg <= angle <= category.hold_max_deg
+    else:
+        info["down"] = category.rep_down_threshold_deg
+        info["up"] = category.rep_up_threshold_deg
+    return info
+
+
 async def _handle_frame(websocket: WebSocket, session_id: str, state: dict, data: dict) -> None:
     raw_landmarks = data.get("landmarks")
     if not isinstance(raw_landmarks, list) or len(raw_landmarks) != EXPECTED_LANDMARK_COUNT:
@@ -254,12 +330,23 @@ async def _handle_frame(websocket: WebSocket, session_id: str, state: dict, data
     landmarks = _to_landmark_objects(raw_landmarks)
     state["accumulator"].add_frame(landmarks, data["timestamp_s"])
 
+    # 개발용: 매 프레임 판정 근거(각도/상태)를 함께 보내 폰에서 튜닝할 수 있게 한다.
+    try:
+        tuning = _tuning_info(state, landmarks)
+    except Exception:
+        tuning = {}
+
     summary = state["accumulator"].get_summary_if_ready(session_id, state["exercise"])
     if summary is None:
-        await websocket.send_json({"ack": True})
+        await websocket.send_json({"ack": True, "tuning": tuning})
         return
 
     print(json.dumps(summary.model_dump(), indent=2, ensure_ascii=False))
+
+    try:
+        db_repo.save_feature_window(summary)
+    except Exception:
+        logger.exception("특징 윈도우 저장 실패 (session_id=%s)", session_id)
 
     profile = state.get("profile")
     if profile is None:
@@ -289,6 +376,10 @@ async def _handle_frame(websocket: WebSocket, session_id: str, state: dict, data
         "window_ready": True,
         "messages": [m.model_dump() for m in response.messages],
         "guardrail_passed": response.guardrail_passed,
+        "rep_count": summary.window.rep_count,
+        # 개발용 진단(폰 튜닝): 이 윈도우의 유지 시간까지 함께 보낸다.
+        "hold_seconds": summary.window.hold_seconds,
+        "tuning": tuning,
     })
 
 
@@ -297,7 +388,7 @@ async def ws_exercise(websocket: WebSocket, session_id: str, exercise: str = "sq
     await websocket.accept()
     print(f"[ws] 연결됨 session_id={session_id}", flush=True)
     _ws_sessions[session_id] = {
-        "accumulator": WindowAccumulator(window_seconds=5.0),
+        "accumulator": WindowAccumulator(window_seconds=5.0, exercise=exercise),
         "exercise": exercise,
         "profile": None,
     }

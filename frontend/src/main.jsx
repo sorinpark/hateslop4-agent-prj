@@ -5,13 +5,16 @@ import './index.css'
 import App from './App.jsx'
 import { ProfileProvider } from './state/ProfileContext.jsx'
 import { SessionProvider } from './state/SessionContext.jsx'
+import { ExerciseProvider } from './state/ExerciseContext.jsx'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <BrowserRouter>
       <ProfileProvider>
         <SessionProvider>
-          <App />
+          <ExerciseProvider>
+            <App />
+          </ExerciseProvider>
         </SessionProvider>
       </ProfileProvider>
     </BrowserRouter>

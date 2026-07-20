@@ -1,9 +1,14 @@
 """
-MediaPipe 포즈 인식 스파이크 - 스쿼트 관절 가시성 확인 + 특징 추출
-관심 관절: hip(23,24), knee(25,26), ankle(27,28)
-초록 원 = visibility >= 0.6 (잘 인식됨)
-빨간 원 = visibility < 0.6 (인식 불량)
+MediaPipe 포즈 인식 스파이크 - 관절 가시성 확인 + 특징 추출 + 전체 파이프라인
+(세션 시작/프로필/피드백 API까지) 확인용.
+
+사용법: python spike_webcam.py <운동 슬러그>  (생략하면 기본값 squats)
+관심 관절(초록 원=visibility>=0.6/잘 인식됨, 빨간 원=인식 불량)은 그 슬러그의
+카테고리(categories/)가 실제로 보는 관절로 정해진다 - 하드코딩돼 있지 않다.
 5초마다 콘솔에 schemas.FeatureSummary 형식 JSON을 출력한다.
+
+빠르게 임계값만 튜닝하려면(서버/LLM 호출 없이) category_tuner.py를 쓴다 -
+이 스크립트는 전체 파이프라인이 도는지 확인하는 용도다.
 """
 
 import json
@@ -18,12 +23,15 @@ from mediapipe.tasks import python as mp_python
 from mediapipe.tasks.python import vision as mp_vision
 import numpy as np
 
+from angles import JOINTS as ALL_JOINTS
+from categories import get_category
 from feature_extractor import WindowAccumulator
 
 API_BASE_URL = "http://127.0.0.1:8000"
 SESSION_ID = "spike_session"
 USER_ID = "u1"
-EXERCISE = "squat"
+EXERCISE = sys.argv[1] if len(sys.argv) > 1 else "squats"
+CATEGORY = get_category(EXERCISE)
 
 MODEL_URL = (
     "https://storage.googleapis.com/mediapipe-models/"
@@ -31,12 +39,16 @@ MODEL_URL = (
 )
 MODEL_PATH = Path(__file__).parent.parent / "data" / "pose_landmarker.task"
 
-# 관심 관절 인덱스
-JOINTS = {
-    "L_hip": 23, "R_hip": 24,
-    "L_knee": 25, "R_knee": 26,
-    "L_ankle": 27, "R_ankle": 28,
-}
+# 관심 관절 인덱스 - 이 운동의 카테고리가 실제로 보는 관절만(각도의 꼭짓점 랜드마크).
+_LANDMARK_OF_JOINT = {name: idxs[1] for name, idxs in ALL_JOINTS.items()}
+_watch_bases = set(CATEGORY.lr_diff_joints) | set(CATEGORY.stability_joints)
+JOINTS = {f"{side}_{base}": _LANDMARK_OF_JOINT[f"{side}_{base}"]
+          for base in _watch_bases for side in ("L", "R")}
+for _pair in (CATEGORY.rep_joint_pair, CATEGORY.hold_joint_pair):
+    if _pair:
+        for _name in _pair:
+            JOINTS[_name] = _LANDMARK_OF_JOINT[_name]
+
 VIS_THRESHOLD = 0.6
 GREEN = (0, 255, 0)
 RED   = (0, 0, 255)
@@ -107,6 +119,7 @@ def _result_callback(result, output_image, timestamp_ms):
 
 
 def main():
+    print(f"운동: {EXERCISE} -> 카테고리: {CATEGORY.name}")
     session_id = start_session()
     profile_data = create_profile()
 
@@ -128,7 +141,7 @@ def main():
     if not cap.isOpened():
         sys.exit("웹캠을 열 수 없습니다. 카메라 연결/권한을 확인하세요.")
 
-    accumulator = WindowAccumulator(window_seconds=5.0)
+    accumulator = WindowAccumulator(window_seconds=5.0, exercise=EXERCISE)
     start_time = time.time()
 
     with mp_vision.PoseLandmarker.create_from_options(options) as landmarker:
@@ -176,7 +189,7 @@ def main():
                 cv2.putText(frame, "No person detected", (10, 30),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 165, 255), 2)
 
-            cv2.imshow("Squat Joint Spike", frame)
+            cv2.imshow(f"Joint Spike: {EXERCISE}", frame)
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
 

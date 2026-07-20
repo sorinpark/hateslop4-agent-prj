@@ -1,133 +1,233 @@
-import { useState, useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { exercise } from '../dummy.js'
-import { createPoseLandmarker, computeConfidence } from '../lib/pose.js'
+import { usePoseCamera } from '../hooks/usePoseCamera.js'
+import { useExercise } from '../state/ExerciseContext.jsx'
 
-/* 카메라 가드 — 운동별 안내 + 실제 웹캠/MediaPipe 인식 신뢰도 체크 (기획.md 4-7-가).
-   schemas.Confidence.below_threshold 가 true면 운동을 시작하지 않고 재안내한다. */
+const CONFIDENCE_THRESHOLD = 0.6
+// 양호 상태가 이만큼(ms) 이어지면 자동 캡처(한 프레임 튐으로 오작동 방지)
+const CAPTURE_HOLD_MS = 800
+
+/* 카메라 가드 — 운동별 안내 + 인식 신뢰도 체크 (기획.md 4-7-가).
+   confidence < 0.6 이면 아직 인식이 덜 된 것으로 본다.
+
+   전신이 안정적으로 잡히면(양호 상태가 잠깐 유지되면) 그 순간의 프레임을
+   자동으로 캡처해 화면을 정지시킨다. 사용자가 '운동 시작' 버튼을 누르러
+   카메라에 가까이 와 전신이 벗어나도, 정지된 캡처가 유지되므로 안심하고
+   시작할 수 있다. 다시 맞추고 싶으면 '다시 맞추기'로 라이브로 돌아간다. */
 export default function CameraGuard() {
   const navigate = useNavigate()
-  const videoRef = useRef(null)
-  const rafRef = useRef(null)
-  const landmarkerRef = useRef(null)
-  const streamRef = useRef(null)
-  const [confidence, setConfidence] = useState({
-    overall: 0,
-    interp_ratio: 0,
-    below_threshold: true,
-  })
-  // 'loading' | 'ready' | 'denied' | 'error'
-  const [status, setStatus] = useState('loading')
+  const { exercise } = useExercise()
+  const { videoRef, canvasRef, confidence, status, error, cameraStream } =
+    usePoseCamera()
+
+  // 현재 프레임 기준 인식 양호 여부(안내 문구용)
+  const okNow = confidence !== null && confidence >= CONFIDENCE_THRESHOLD
+
+  // 캡처된 정지 프레임을 그릴 캔버스 + 캡처 여부
+  const captureCanvasRef = useRef(null)
+  const bgVideoRef = useRef(null)
+  const [captured, setCaptured] = useState(false)
+  const holdTimerRef = useRef(null)
 
   useEffect(() => {
-    let cancelled = false
+    const bgVideo = bgVideoRef.current
+    if (!bgVideo || !cameraStream) return
 
-    async function start() {
-      let stream
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'user' },
-        })
-      } catch (err) {
-        if (!cancelled) {
-          setStatus(err.name === 'NotAllowedError' ? 'denied' : 'error')
-        }
-        return
-      }
-      if (cancelled) {
-        stream.getTracks().forEach((t) => t.stop())
-        return
-      }
-      streamRef.current = stream
-      const video = videoRef.current
-      video.srcObject = stream
-      await video.play()
+    bgVideo.srcObject = cameraStream
+    bgVideo.play().catch(() => {})
+  }, [cameraStream])
 
-      try {
-        const landmarker = await createPoseLandmarker()
-        if (cancelled) {
-          landmarker.close()
-          return
-        }
-        landmarkerRef.current = landmarker
-      } catch {
-        if (!cancelled) setStatus('error')
-        return
+  // 양호 상태가 CAPTURE_HOLD_MS 이상 이어지면 자동 캡처.
+  // 이미 캡처됐으면 아무것도 안 함(다시 맞추기 전까지 정지 유지).
+  useEffect(() => {
+    if (captured) return
+    if (okNow) {
+      if (holdTimerRef.current == null) {
+        holdTimerRef.current = setTimeout(() => {
+          holdTimerRef.current = null
+          doCapture()
+        }, CAPTURE_HOLD_MS)
       }
-
-      setStatus('ready')
-      const loop = () => {
-        if (cancelled || !videoRef.current || !landmarkerRef.current) return
-        const result = landmarkerRef.current.detectForVideo(videoRef.current, performance.now())
-        const landmarks = result.landmarks?.[0]
-        if (landmarks) setConfidence(computeConfidence(landmarks))
-        rafRef.current = requestAnimationFrame(loop)
+    } else {
+      // 양호가 끊기면 대기 타이머 취소(연속 유지됐을 때만 캡처)
+      if (holdTimerRef.current != null) {
+        clearTimeout(holdTimerRef.current)
+        holdTimerRef.current = null
       }
-      loop()
     }
-
-    start()
-
     return () => {
-      cancelled = true
-      if (rafRef.current) cancelAnimationFrame(rafRef.current)
-      landmarkerRef.current?.close()
-      streamRef.current?.getTracks().forEach((t) => t.stop())
+      if (holdTimerRef.current != null) {
+        clearTimeout(holdTimerRef.current)
+        holdTimerRef.current = null
+      }
     }
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [okNow, captured])
 
-  const ok = status === 'ready' && !confidence.below_threshold
+  // 현재 video 프레임 + 스켈레톤을 캡처 캔버스에 그려 정지 이미지로 만든다.
+  function doCapture() {
+    const video = videoRef.current
+    const skeleton = canvasRef.current
+    const out = captureCanvasRef.current
+    if (!video || !out || !video.videoWidth) return
+
+    out.width = video.videoWidth
+    out.height = video.videoHeight
+    const ctx = out.getContext('2d')
+    ctx.drawImage(video, 0, 0, out.width, out.height)
+    // 스켈레톤 오버레이도 같이 얹어 '무엇이 잡혔는지' 보이게
+    if (skeleton && skeleton.width && skeleton.height) {
+      ctx.drawImage(skeleton, 0, 0, out.width, out.height)
+    }
+    setCaptured(true)
+  }
+
+  const retake = () => setCaptured(false)
+
+  // 시작 가능 = 캡처됐거나(전신 잡혀 정지됨), 지금 양호함
+  const canStart = captured || okNow
 
   return (
-    <div className="screen">
+    <div className="screen ex-cam">
       <div className="screen__scroll">
-        <p className="eyebrow">카메라 준비 · {exercise.name}</p>
-        <h2 className="title">카메라를 맞춰주세요</h2>
-        <p className="subtitle">{exercise.cameraHint}</p>
+        <p className="eyebrow eyebrow--tight">
+          카메라 준비 · {exercise.name}
+        </p>
+        <p className="cam-hint">{exercise.cameraHint}</p>
 
-        <div className="cam-preview">
-          <video ref={videoRef} className="cam-preview__video" muted playsInline />
+        <div
+          className="cam-preview cam-preview--live"
+          style={{ position: 'relative' }}
+        >
           {status === 'loading' && (
-            <p className="text-muted" style={{ margin: 0, position: 'relative' }}>
-              카메라를 불러오는 중...
+            <p className="text-muted" style={{ margin: 0 }}>
+              카메라를 준비하고 있어요...
             </p>
           )}
-          {status === 'denied' && (
-            <p className="text-muted" style={{ margin: 0, position: 'relative' }}>
-              카메라 권한이 필요해요. 브라우저 설정에서 허용해주세요.
-            </p>
-          )}
-          {status === 'error' && (
-            <p className="text-muted" style={{ margin: 0, position: 'relative' }}>
-              카메라를 불러오지 못했어요. 새로고침 후 다시 시도해주세요.
-            </p>
-          )}
-        </div>
 
-        {status === 'ready' && (
-          <div className={'cam-status ' + (ok ? 'cam-status--ok' : 'cam-status--bad')}>
+          {status === 'error' && (
+            <p className="text-muted" style={{ margin: 0 }}>
+              카메라 접근에 실패했어요. 브라우저 카메라 권한을 확인해주세요.
+              {error ? ` (${error})` : ''}
+            </p>
+          )}
+
+          {/* 라이브 영상 + 스켈레톤 (캡처되면 숨김).
+              전면 카메라라 거울 모드(scaleX -1)로 보여준다 — 내가 왼쪽으로
+              움직이면 화면에서도 왼쪽으로 움직이게. */}
+          <video
+            ref={bgVideoRef}
+            className="camera-video-bg"
+            muted
+            playsInline
+            autoPlay
+            aria-hidden="true"
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: '100%',
+              height: '100%',
+              display: captured ? 'none' : 'block',
+            }}
+          />
+          <video
+            ref={videoRef}
+            className="camera-video-main"
+            muted
+            playsInline
+            autoPlay
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: '100%',
+              height: '100%',
+              display: captured ? 'none' : 'block',
+              transform: 'scaleX(-1)',
+            }}
+          />
+          <canvas
+            ref={canvasRef}
+            className="camera-overlay-main"
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: '100%',
+              height: '100%',
+              display: captured ? 'none' : 'block',
+              transform: 'scaleX(-1)',
+            }}
+          />
+          {/* 캡처된 정지 프레임 (캡처됐을 때만 보임). 라이브와 같은 거울 방향 유지 */}
+          <canvas
+            ref={captureCanvasRef}
+            className="camera-overlay-main"
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: '100%',
+              height: '100%',
+              display: captured ? 'block' : 'none',
+              transform: 'scaleX(-1)',
+            }}
+          />
+          {captured && <span className="cam-captured-badge">촬영됨</span>}
+
+          {/* 상태표시를 카메라 위 오버레이(하단)로 얹어 세로 공간을 아낀다 */}
+          <div
+            className={
+              'cam-status cam-status--overlay ' +
+              (captured || okNow ? 'cam-status--ok' : 'cam-status--bad')
+            }
+          >
             <span
               className={
-                'cam-status__dot ' + (ok ? 'cam-status__dot--ok' : 'cam-status__dot--bad')
+                'cam-status__dot ' +
+                (captured || okNow ? 'cam-status__dot--ok' : 'cam-status__dot--bad')
               }
             />
-            {ok
-              ? `관절 인식 양호 (신뢰도 ${Math.round(confidence.overall * 100)}%)`
-              : `관절이 잘 안 잡혀요 (신뢰도 ${Math.round(
-                  confidence.overall * 100,
-                )}%) — 카메라 위치를 다시 맞춰주세요`}
+            {captured
+              ? '전신이 잘 잡혔어요 — 그대로 시작하세요.'
+              : confidence === null
+                ? '아직 인식되지 않았어요'
+                : okNow
+                  ? `관절 인식 양호 (${Math.round(confidence * 100)}%)`
+                  : `관절이 잘 안 잡혀요 (${Math.round(
+                      confidence * 100,
+                    )}%) — 위치를 다시 맞춰주세요`}
           </div>
-        )}
+        </div>
       </div>
 
       <div className="screen__footer">
-        <button
-          className="btn btn--primary"
-          disabled={!ok}
-          onClick={() => navigate('/app/exercise/live')}
-        >
-          {ok ? '운동 시작' : '인식되면 시작할 수 있어요'}
-        </button>
+        {/* 3버튼 균등폭 그리드. 캡처 전엔 '다시 맞추기'가 없는 대신 '운동 시작'이
+            그 칸까지 넓게 차지해서, 버튼 1개당 폭은 캡처 여부와 무관하게 동일하다. */}
+        <div className="cam-actions">
+          {captured && (
+            <button className="btn btn--ghost" onClick={retake}>
+              다시 맞추기
+            </button>
+          )}
+          <button
+            className="btn btn--primary"
+            disabled={!canStart}
+            onClick={() => navigate('/app/exercise/live')}
+            style={{ gridColumn: captured ? 'auto' : 'span 2' }}
+          >
+            {canStart ? '운동 시작' : '전신이 잡히면 시작할 수 있어요'}
+          </button>
+          {/* 탭바가 없는 화면이라, 나가는 길을 명시적으로 둔다 */}
+          <button
+            type="button"
+            className="btn btn--ghost"
+            onClick={() => navigate('/app/exercise')}
+          >
+            취소
+          </button>
+        </div>
       </div>
     </div>
   )

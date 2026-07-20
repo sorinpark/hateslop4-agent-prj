@@ -69,6 +69,68 @@
   margin: 0;
 }
 
+/* ── 카메라 준비 화면 컴팩트 레이아웃 ────────────────────────────────
+   카메라 영역을 최대한 확보하려고 위/아래 텍스트를 압축한다. */
+.ex-cam {
+  padding: 12px 16px 16px; /* .screen 기본 패딩보다 작게 */
+}
+.ex-cam .screen__scroll {
+  gap: 8px;
+}
+.eyebrow--tight {
+  margin: 0;
+  font-size: 12px;
+}
+/* 카메라 화면은 하단 버튼도 작게 해 카메라 공간을 더 확보 */
+.ex-cam .screen__footer {
+  padding-top: 6px;
+}
+.ex-cam .screen__footer .btn {
+  padding: 9px 12px;
+  font-size: 14px;
+  border-radius: 10px;
+}
+/* 다시 맞추기/운동 시작/취소 3버튼 균등폭 그리드.
+   캡처 전엔 '다시 맞추기'가 없어 '운동 시작'이 grid-column: span 2로
+   그 자리까지 차지하므로, 버튼 1개당 폭이 상태와 무관하게 항상 동일하다. */
+.cam-actions {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+.cam-actions .btn {
+  width: 100%;
+}
+/* 카메라 위 안내(운동별 촬영 팁): 작게 2줄 정도로 */
+.cam-hint {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-tertiary);
+}
+/* 상태표시를 카메라 위에 반투명 하단 배지로 오버레이 */
+.cam-status--overlay {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  margin: 0;
+  z-index: 4;
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.35;
+  background: rgb(0 0 0 / 55%);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+.cam-status--overlay.cam-status--ok {
+  color: var(--accent-soft-text);
+}
+.cam-status--overlay.cam-status--bad {
+  color: var(--warn-soft-text);
+}
+
 /* 카메라 가드 — 프리뷰 영역 */
 .cam-preview {
   position: relative;
@@ -86,6 +148,79 @@
   text-align: center;
   padding: 24px;
   margin-bottom: 16px;
+}
+/* 실제 웹캠이 들어갈 때: 안내문용 padding/점선 제거.
+   전신(특히 측면 스쿼트)이 잘리면 자세 인식이 안 되므로, cover(잘라 채움) 대신
+   contain(전체를 다 보여줌)으로 바꾼다. 위아래 약간의 검은 여백(레터박스)이
+   생길 수 있지만 전신이 확실히 들어온다. 그리고 세로 공간을 최대한 크게 잡아
+   전신이 작게 보이지 않게 한다. */
+.cam-preview--live {
+  padding: 0;
+  border-style: solid;
+  overflow: hidden;
+  background: #000;
+  /* 위 텍스트를 뺀 '남은 공간'을 정확히 채운다(flex:1). 고정 vh 를 주면 위
+     텍스트와 합쳐져 화면을 넘겨 스크롤이 생기므로 쓰지 않는다. 최소값만 작게
+     보장. cover + 광각(줌 최소)으로 전신이 이 안에 다 들어오게 한다. */
+  flex: 1 1 auto;
+  /* 카드는 세로로 길게(가용 높이를 다 씀). 소스는 4:3 풀센서(세로 화각 최대)
+     라서, cover 로 세로를 꽉 채워도 얼굴이 16:9 크롭 때처럼 커지지 않는다.
+     좌우만 살짝 잘린다. */
+  width: 100%;
+  /* 위 텍스트 + 하단(작아진) 버튼 + 탭바 몫만 빼고 최대한 세로로 길게 */
+  max-height: calc(100svh - 168px);
+  min-height: 360px;
+  align-self: center;
+}
+.cam-preview--live video,
+.cam-preview--live canvas {
+  /* 기본 배율 그대로(확대·크롭 없음): contain 으로 세로 영상 원본 전체를
+     보여준다. 소스가 세로(720x1280)라 세로로 길게 나오며, cover 처럼 확대해
+     얼굴이 커지는 일이 없다. 컨테이너가 더 뚱뚱하면 좌우에 약간 여백만 생김. */
+  object-position: center center;
+}
+.cam-preview--live .camera-video-bg,
+.live__stage .camera-video-bg {
+  filter: blur(18px);
+  object-fit: cover;
+  opacity: 0.5;
+  transform: scaleX(-1) scale(1.08);
+  z-index: 0;
+}
+.cam-preview--live .camera-video-main,
+.live__stage .camera-video-main {
+  /* 세로로 긴 카드를 꽉 채운다(cover). 소스가 4:3 풀센서(세로 화각 최대)라
+     세로 방향은 하나도 잘리지 않고 좌우만 살짝 잘린다 — 세로로 길면서도
+     얼굴은 최대한 작게 보이는 조합. */
+  object-fit: cover;
+  object-position: center center;
+  z-index: 1;
+}
+.cam-preview--live .camera-overlay-main,
+.live__stage .camera-overlay-main {
+  /* 스켈레톤/캡처도 메인 영상과 같은 배치로 정확히 겹치게 cover */
+  object-fit: cover;
+  object-position: center center;
+  z-index: 2;
+}
+
+@media (max-height: 640px) {
+  .cam-preview--live {
+    min-height: 260px;
+  }
+}
+/* 캡처(정지) 상태 배지 */
+.cam-captured-badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 4;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--accent-on);
+  font-weight: 600;
 }
 .cam-preview__icon {
   font-size: 40px;
@@ -125,20 +260,20 @@
   color: var(--warn-soft-text);
 }
 
-/* 실시간 운동 화면 */
+/* 실시간 운동 화면 — 카메라 준비 화면과 동일한 컴팩트 레이아웃 */
 .live {
   flex: 1;
   display: flex;
   flex-direction: column;
   background: var(--bg-app);
-  padding: 20px 18px;
+  padding: 12px 16px 16px;
   min-height: 100svh;
 }
 .live__top {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 14px;
+  margin-bottom: 8px;
 }
 .live__timer {
   font-size: 20px;
@@ -151,27 +286,86 @@
   color: var(--text-tertiary);
 }
 .live__stage {
-  flex: 1;
-  min-height: 220px;
+  /* 카메라 준비(.cam-preview--live)와 완전히 동일한 크기 규칙.
+     실시간 화면은 탭바가 없어 flex:1 로 두면 박스가 더 길어지고, cover 가
+     세로 기준으로 더 확대해 얼굴이 커진다 → 같은 max-height 로 캡. */
+  flex: 1 1 auto;
+  width: 100%;
+  max-height: calc(100svh - 168px);
+  min-height: 360px;
+  align-self: center;
   border-radius: 16px;
-  background: var(--bg-card-soft);
+  background: #000;
   border: 1px solid var(--border-soft);
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--text-muted);
-  margin-bottom: 14px;
+  margin-bottom: 10px;
   position: relative;
   overflow: hidden;
 }
-.live__video {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  transform: scaleX(-1);
+/* 기본 배율 그대로(contain): 세로 영상 원본을 확대·크롭 없이 보여준다 */
+.live__stage video,
+.live__stage canvas {
+  object-position: center center;
 }
+/* ── 개발용 튜닝 오버레이 (plus_exercise.md 2단계 실측용) ──────────────
+   폰에서 임계값을 맞추기 위한 임시 표시. 실측이 끝나면 이 블록과
+   LiveExercise.jsx의 .tune 마크업을 함께 제거한다. */
+.tune {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 4;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgb(0 0 0 / 65%);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: right;
+  pointer-events: none;
+  border: 1px solid var(--warn-dot);
+  font-variant-numeric: tabular-nums;
+}
+/* 범위 안(IN-RANGE)일 때만 테두리를 강조색으로 — 멀리서도 판정이 보이게 */
+.tune--ok {
+  border-color: var(--accent);
+}
+.tune__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.tune__joint {
+  opacity: 0.7;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+.tune__angle {
+  font-size: 20px;
+  font-weight: 700;
+}
+.tune__range {
+  opacity: 0.75;
+  font-size: 11px;
+}
+.tune__state {
+  font-weight: 700;
+  margin-top: 2px;
+}
+.tune--ok .tune__state {
+  color: var(--accent);
+}
+.tune__total {
+  margin-top: 2px;
+  opacity: 0.9;
+}
+
 .live__paused-badge {
   position: absolute;
   top: 12px;
@@ -228,14 +422,120 @@
   padding: 24px 0;
 }
 
-/* 하단 액션 버튼 줄 */
+/* ── C: 로그/팝업 섹션 (LiveExercise 화면) ──────────────────────── */
+/* 팝업(행동교정) — 3n번째 rep 직후 상단에 떴다가 일정 시간 뒤 fade-out.
+   진단 오버레이(top-right)·일시정지 배지(top-left)와 안 겹치게 그 아래쪽에 둔다. */
+.fb-popup {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: 44px;
+  z-index: 4;
+  pointer-events: none; /* 영상 터치(일시정지 등)를 막지 않게 */
+  animation: fb-popup-fade 5s ease forwards;
+}
+.fb-popup .fb {
+  margin: 0;
+  padding: 10px 12px;
+  background: rgb(0 0 0 / 60%);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  border-color: rgb(255 255 255 / 12%);
+}
+.fb-popup .fb__text {
+  color: #fff;
+  font-size: 14px;
+}
+@keyframes fb-popup-fade {
+  0% { opacity: 0; transform: translateY(-6px); }
+  8% { opacity: 1; transform: translateY(0); }
+  80% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* 총로그탭 진입 버튼 — 카메라 화면 우측 하단 */
+.log-toggle-btn {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  z-index: 4;
+  padding: 6px 12px;
+  font-size: 13px;
+  border-radius: 999px;
+  border: 1px solid rgb(255 255 255 / 25%);
+  background: rgb(0 0 0 / 55%);
+  color: #fff;
+}
+
+/* 총로그탭 오버레이 — 반투명 + blur로 뒤 운동화면이 비치게 하고, 글씨는 흰색으로 또렷하게 */
+.log-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  padding: 24px 16px;
+  background: rgb(0 0 0 / 55%);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+.log-overlay__panel {
+  margin: auto 0;
+  width: 100%;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid rgb(255 255 255 / 15%);
+  background: rgb(20 20 20 / 55%);
+}
+.log-overlay__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.log-overlay__head h3 {
+  margin: 0;
+  font-size: 16px;
+  color: #fff;
+}
+.log-overlay__close {
+  padding: 4px 8px;
+  border: none;
+  background: none;
+  font-size: 22px;
+  line-height: 1;
+  color: #fff;
+  cursor: pointer;
+}
+.log-overlay__list {
+  overflow-y: auto;
+}
+.log-overlay__list .fb {
+  background: rgb(0 0 0 / 40%);
+  border-color: rgb(255 255 255 / 12%);
+}
+.log-overlay__list .fb__text {
+  color: #fff;
+}
+.log-overlay__list .fb__kind,
+.log-overlay__list .fb__area {
+  color: rgb(255 255 255 / 70%);
+}
+
+/* 하단 액션 버튼 줄 — 카메라 준비 화면과 동일하게 작게. 항상 화면 하단에 */
 .live__actions {
   display: flex;
   gap: 10px;
+  margin-top: auto;
 }
 .live__actions .btn {
   width: auto;
   flex: 1;
+  padding: 9px 12px;
+  font-size: 14px;
+  border-radius: 10px;
 }
 
 /* 종료 확인 팝업 (모달) */
@@ -276,4 +576,200 @@
 .modal__actions .btn {
   width: auto;
   flex: 1;
+}
+
+/* ======================================================================
+   [축 A · 운동 선택 화면] ExerciseSelect.jsx 전용. 색은 theme.css 변수만.
+   ====================================================================== */
+
+/* 시작 바가 리스트 끝을 가리지 않도록 스크롤 영역 아래 여백 확보 */
+.ex-select .screen__scroll {
+  padding-bottom: 84px;
+}
+
+/* 운동명 검색 입력 */
+.ex-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  margin: 4px 0 14px;
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  background: var(--bg-card);
+}
+.ex-search:focus-within {
+  border-color: var(--accent);
+}
+.ex-search__icon {
+  font-size: 14px;
+  opacity: 0.6;
+}
+.ex-search__input {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: 15px;
+  color: var(--text-primary);
+  padding: 11px 0;
+}
+.ex-search__input::placeholder {
+  color: var(--text-muted);
+}
+.ex-search__clear {
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 4px;
+  line-height: 1;
+}
+
+/* 운동을 고르면 navbar(탭바 64px) 위에 반투명 고정으로 떠오르는 시작 바.
+   기본은 아래로 숨어 있다가 --on 일 때 슬라이드 업 + 페이드 인. */
+.ex-startbar {
+  position: fixed;
+  left: 50%;
+  bottom: 64px; /* 탭바 높이만큼 위 */
+  width: 100%;
+  max-width: 420px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+  /* 반투명 유리 느낌: 카드색을 반투명으로 깔고 블러 */
+  background: color-mix(in srgb, var(--bg-card) 82%, transparent);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  border-top: 1px solid var(--border-default);
+  z-index: 5;
+  /* 숨김 상태: 아래로 내려가고 투명 */
+  transform: translateX(-50%) translateY(120%);
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 0.22s ease, opacity 0.22s ease;
+}
+.ex-startbar--on {
+  transform: translateX(-50%) translateY(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+.ex-startbar__label {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ex-startbar__label b {
+  color: var(--text-primary);
+}
+.ex-startbar .btn {
+  width: auto;
+  flex-shrink: 0;
+  padding: 12px 20px;
+}
+
+/* 부위 필터 칩 (중복 선택) */
+.part-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0 16px;
+}
+.part-chip {
+  border: 1px solid var(--border-default);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-size: 14px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.part-chip--on {
+  background: var(--accent-soft-bg);
+  border-color: var(--accent-border-soft);
+  color: var(--accent-soft-text-strong);
+}
+
+/* 운동 리스트 */
+.ex-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ex-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  padding: 10px;
+  border-radius: 14px;
+  border: 1px solid var(--border-default);
+  background: var(--bg-card);
+  cursor: pointer;
+  font-family: inherit;
+  position: relative;
+}
+.ex-item--on {
+  border-color: var(--accent);
+  background: var(--accent-soft-bg);
+}
+.ex-item__thumb {
+  flex-shrink: 0;
+  width: 64px;
+  height: 64px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--bg-card-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ex-item__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.ex-item__thumb-ph {
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 4px;
+}
+.ex-item__body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.ex-item__name {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.ex-item__parts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.ex-item__part {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--bg-card-soft);
+  color: var(--text-tertiary);
+}
+.ex-item__check {
+  margin-left: auto;
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 18px;
 }

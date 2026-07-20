@@ -1,11 +1,16 @@
 import { useNavigate } from 'react-router-dom'
-import { exercise, patternLabel } from '../dummy.js'
+import { patternLabel } from '../dummy.js'
 import { useProfileOrFallback } from '../state/ProfileContext.jsx'
+import { useExercise } from '../state/ExerciseContext.jsx'
 
-/* 운동 홈 — 오늘 할 운동(스쿼트) 안내 + 시작.
+/* 운동 홈 — 오늘 할 운동 안내 + 시작.
+   운동은 운동 선택 화면(A)에서 고른 것을 전역(useExercise)에서 읽는다.
    다음: 카메라 가드 */
 export default function ExerciseHome() {
   const navigate = useNavigate()
+
+  // 선택한 운동(없으면 기본=스쿼트로 폴백)
+  const { exercise } = useExercise()
 
   // 온보딩에서 만든 관찰 프로필을 전역에서 읽는다 (없으면 폴백)
   const profile = useProfileOrFallback()
@@ -21,8 +26,18 @@ export default function ExerciseHome() {
         <div className="exercise-hero">
           <p className="exercise-hero__name">{exercise.name}</p>
           <p className="exercise-hero__sub">
-            큰 관절 위주라 인식이 안정적이에요. 1종으로 먼저 검증해요.
+            {exercise.parts.join(' · ')} 운동이에요.
+            <br />
+            다른 운동을 하고 싶으면 아래에서 바꿀 수 있어요.
           </p>
+          <button
+            type="button"
+            className="btn btn--ghost"
+            style={{ marginTop: 12, width: 'auto', padding: '8px 16px' }}
+            onClick={() => navigate('/app/exercise/select')}
+          >
+            운동 바꾸기
+          </button>
         </div>
 
         {/* 온보딩에서 만든 집중 관찰 부위 */}

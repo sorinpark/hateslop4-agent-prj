@@ -1,184 +1,389 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { exercise } from '../dummy.js'
 import FeedbackCard from '../components/FeedbackCard.jsx'
-import { useSessions } from '../state/SessionContext.jsx'
+import { usePoseCamera } from '../hooks/usePoseCamera.js'
+import { getDeviceId } from '../state/storage.js'
 import { useProfileOrFallback } from '../state/ProfileContext.jsx'
-import { createPoseLandmarker, toLandmarkPayload } from '../lib/pose.js'
-import { API_BASE, WS_BASE } from '../config.js'
+import { fetchSessions } from '../api/sessions.js'
+import { useExercise } from '../state/ExerciseContext.jsx'
 
-const FRAME_INTERVAL_MS = 200 // 5fps로 서버에 전송 (5초 윈도우 집계엔 충분)
+const POPUP_DURATION_MS = 5000 // 팝업 노출 시간(4~5초 범위 중 5초로 시작)
+// hold 운동(플랭크/브릿지/슈퍼맨 등)의 팝업 주기.
+// rep 운동은 "3회마다" 띄우는데, hold 운동은 rep이 안 세이므로 유지 시간 기준으로 띄운다.
+const HOLD_POPUP_INTERVAL_S = 15
+
+// 두 피드백 메시지가 "같은 내용"인지: area 일치 + evidence 키 대분류(prefix)가 겹치면 같은 내용으로 본다.
+// (LLM이 매번 다른 문장을 생성해서 텍스트 완전일치로는 못 묶으므로 구조화된 필드로 판정)
+function isSimilarFeedback(a, b) {
+  if (a.area !== b.area) return false
+  const prefixes = (m) => new Set((m.evidence ?? []).map((e) => e.split('.')[0]))
+  const pa = prefixes(a)
+  for (const p of prefixes(b)) {
+    if (pa.has(p)) return true
+  }
+  return false
+}
+
+// 3n번째 rep 시점에 팝업으로 띄울 메시지 하나를 고른다.
+// buffer: 직전 트리거 이후 도착한 메시지들 / fallbackList: 세션 전체 이력(최신이 앞)
+function pickPopupCandidate(buffer, fallbackList) {
+  const candidates = buffer.filter((m) => m.type === 'suggestion')
+  if (candidates.length === 1) return candidates[0]
+  if (candidates.length > 1) {
+    for (let i = candidates.length - 1; i > 0; i--) {
+      for (let j = i - 1; j >= 0; j--) {
+        if (isSimilarFeedback(candidates[i], candidates[j])) return candidates[i]
+      }
+    }
+    return candidates[candidates.length - 1] // 겹치는 게 없으면 구간 내 최신 것
+  }
+  return fallbackList[0] ?? null // 구간에 popup 후보가 아예 없으면 전체 이력 중 최신 것
+}
+
+// 3rep 구간에 모인 메시지들을 흡사한 것끼리 묶어 대표 1개씩만 남긴다(총로그탭용).
+function dedupeBatch(batch) {
+  const kept = []
+  for (const msg of batch) {
+    if (!kept.some((k) => isSimilarFeedback(k, msg))) {
+      kept.push(msg)
+    }
+  }
+  return kept
+}
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL
+// API_BASE_URL이 있으면 그걸 ws(s)로 바꿔 쓰고, 비어 있으면(=Vite 프록시 사용)
+// 현재 페이지 origin에서 ws/wss를 유도한다. https 페이지(폰)면 wss로 맞춰진다.
+const WS_BASE_URL = API_BASE_URL
+  ? API_BASE_URL.replace(/^http/, 'ws')
+  : `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}`
+
+// 로컬 날짜를 YYYY-MM-DD 로 (기록 조회용, UTC 밀림 방지)
+function todayLocal() {
+  const d = new Date()
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
 
 /* 실시간 운동 — 타이머 / 일시정지 / 피드백 스트림 / 종료 팝업.
-   카메라(getUserMedia) + MediaPipe PoseLandmarker로 프레임마다 랜드마크를 추출해
-   POST /session/start로 받은 session_id로 /ws/exercise에 연결해 전송하고,
-   5초 윈도우가 찰 때마다 서버가 보내주는 FeedbackResponse를 그대로 쌓아 보여준다. */
+   카메라(usePoseCamera)로 뽑은 랜드마크를 WebSocket(/ws/exercise)으로 보내고,
+   5~10초 윈도우가 완성될 때마다 서버가 보내주는 피드백을 이 자리에 흘려보낸다. */
 export default function LiveExercise() {
   const navigate = useNavigate()
-  const { addSession } = useSessions()
+  const { exercise } = useExercise()
   const profile = useProfileOrFallback()
   const [elapsed, setElapsed] = useState(0) // 초
   const [paused, setPaused] = useState(false)
   const [showEnd, setShowEnd] = useState(false)
-  // 'connecting' | 'live' | 'error'
-  const [phase, setPhase] = useState('connecting')
+  // 총로그탭: 3rep 구간마다 dedupe된 메시지가 쌓이는 세션 전체 이력 (최신이 위)
+  const [logEntries, setLogEntries] = useState([])
+  const [showLog, setShowLog] = useState(false)
+
+  // 셋 중 하나라도 켜지면 화면을 얼리고(카메라/인식 정지) 서버 전송도 멈춘다.
+  const cameraPaused = paused || showEnd || showLog
+
+  const { videoRef, canvasRef, landmarks, confidence, status, cameraStream } =
+    usePoseCamera(cameraPaused)
+  const bgVideoRef = useRef(null)
   // 지금까지 도착한 FeedbackMessage 들 (최신이 위로)
   const [messages, setMessages] = useState([])
+  const messagesRef = useRef([]) // WS 콜백에서 최신 messages를 읽기 위한 미러
+  useEffect(() => {
+    messagesRef.current = messages
+  }, [messages])
 
-  const videoRef = useRef(null)
+  // 팝업(행동교정): 3n번째 rep 직후 표시되는 메시지 하나
+  const [popup, setPopup] = useState(null)
+  const popupTimeoutRef = useRef(null)
+  const pendingRef = useRef([]) // 마지막 3n 트리거 이후 도착한 메시지 버퍼
+  const totalRepsRef = useRef(0) // 세션 누적 rep (윈도우마다 리셋되는 서버 값과 별개)
+
+  useEffect(() => {
+    return () => {
+      if (popupTimeoutRef.current) clearTimeout(popupTimeoutRef.current)
+    }
+  }, [])
+
+  const [sessionId, setSessionId] = useState(null)
+  const [wsStatus, setWsStatus] = useState('connecting') // 'connecting' | 'ready' | 'error'
+  const [wsError, setWsError] = useState(null)
+  const [endingReport, setEndingReport] = useState(false)
+
+  // ── 개발용 튜닝 오버레이 (plus_exercise.md 2단계 실측용) ──────────────
+  // 서버가 매 프레임 보내주는 판정 근거(각도/임계값/상태). PC의 category_tuner.py를
+  // 폰에서 대신하기 위한 것으로, 임계값 실측이 끝나면 이 상태와 오버레이를 제거한다.
+  const [tuning, setTuning] = useState(null)
+  // hold 모드(등척성)의 누적 유지 시간 — 윈도우마다 서버가 보내주는 값을 합산
+  const holdTotalRef = useRef(0)
+  const [holdTotal, setHoldTotal] = useState(0)
+  // hold 운동의 팝업 트리거용 누적 시간(위 표시용과 별개로 관리)
+  const holdTriggerRef = useRef(0)
+  // 화면 표시용 누적 rep (ref는 갱신돼도 리렌더가 안 되므로 state로도 들고 있는다)
+  const [totalReps, setTotalReps] = useState(0)
+
+  /* 모아둔 피드백을 총로그에 기록하고 팝업 하나를 띄운다.
+     rep 운동(3회마다)과 hold 운동(15초마다) 양쪽에서 호출된다. */
+  const flushFeedbackBatch = () => {
+    const batch = pendingRef.current
+    const chosen = pickPopupCandidate(batch, messagesRef.current)
+    const deduped = dedupeBatch(batch)
+    pendingRef.current = []
+
+    if (deduped.length > 0) {
+      setLogEntries((prev) => [...deduped, ...prev])
+    }
+    if (chosen) {
+      if (popupTimeoutRef.current) clearTimeout(popupTimeoutRef.current)
+      setPopup({ ...chosen, _popupKey: Date.now() })
+      popupTimeoutRef.current = setTimeout(() => setPopup(null), POPUP_DURATION_MS)
+    }
+  }
+
   const wsRef = useRef(null)
-  const landmarkerRef = useRef(null)
-  const streamRef = useRef(null)
-  const intervalRef = useRef(null)
-  const sessionIdRef = useRef(null)
-  const activeRef = useRef(true) // 일시정지/종료팝업 중엔 프레임 전송 중단
-
   useEffect(() => {
-    activeRef.current = !paused && !showEnd
-  }, [paused, showEnd])
+    const bgVideo = bgVideoRef.current
+    if (!bgVideo || !cameraStream) return
 
-  // 1초마다 타이머 (연결 전/일시정지/팝업 중엔 멈춤)
+    bgVideo.srcObject = cameraStream
+    bgVideo.play().catch(() => {})
+  }, [cameraStream])
+
+  // usePoseCamera의 메인 video와 마찬가지로, 배경 video도 같이 얼려야 화면
+  // 전체가 정지한 것처럼 보인다(안 그러면 배경만 계속 살아 움직임).
   useEffect(() => {
-    if (phase !== 'live' || paused || showEnd) return
+    const bgVideo = bgVideoRef.current
+    if (!bgVideo) return
+    if (cameraPaused) {
+      bgVideo.pause()
+    } else {
+      bgVideo.play().catch(() => {})
+    }
+  }, [cameraPaused])
+  const closingRef = useRef(false) // endSession에서 정상 종료 중임을 표시
+
+  // 1초마다 타이머 (일시정지/종료확인/상세로그 중엔 멈춤)
+  useEffect(() => {
+    if (cameraPaused) return
     const id = setInterval(() => setElapsed((s) => s + 1), 1000)
     return () => clearInterval(id)
-  }, [phase, paused, showEnd])
+  }, [cameraPaused])
 
-  // 세션 시작 -> 카메라/PoseLandmarker 준비 -> WebSocket 연결 -> 프레임 전송 루프
+  // 세션 시작 -> WebSocket 연결.
+  // StrictMode(dev)는 이 effect를 [마운트→언마운트→재마운트]로 두 번 돌린다.
+  // 예전 코드는 didInitRef 가드로 재실행을 막았는데, 그러면 1차 실행이 cleanup의
+  // cancelled=true로 무효화된 뒤 2차 실행이 아예 안 일어나 영원히 'connecting'에
+  // 멈추는 버그가 있었다(특히 폰: /session/start가 느려 그 사이 언마운트가 확실히
+  // 일어남). 그래서 가드를 없애고, 매 실행이 자기 WS를 만들고 cleanup에서 그 WS를
+  // 확실히 닫도록 한다. 이 effect 인스턴스에 종속된 로컬 변수(myWs, cancelled)만 본다.
   useEffect(() => {
     let cancelled = false
+    let myWs = null
 
-    async function setup() {
-      let sessionId
+    async function connect() {
+      let newSessionId = null
       try {
-        const startResp = await fetch(`${API_BASE}/session/start`, {
+        const res = await fetch(`${API_BASE_URL}/session/start`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ user_id: profile.user_id, exercise: exercise.id }),
+          body: JSON.stringify({ user_id: getDeviceId(), exercise: exercise.slug }),
         })
-        if (!startResp.ok) throw new Error('session start failed')
-        sessionId = (await startResp.json()).session_id
-      } catch {
-        if (!cancelled) setPhase('error')
+        if (!res.ok) {
+          const body = await res.json().catch(() => null)
+          throw new Error(body?.detail ?? `세션 시작 실패 (${res.status})`)
+        }
+        const data = await res.json()
+        newSessionId = data.session_id
+      } catch (err) {
+        if (cancelled) return
+        setWsStatus('error')
+        setWsError(err instanceof Error ? err.message : String(err))
         return
       }
+
       if (cancelled) return
-      sessionIdRef.current = sessionId
-
-      let stream
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } })
-      } catch {
-        if (!cancelled) setPhase('error')
-        return
-      }
-      if (cancelled) {
-        stream.getTracks().forEach((t) => t.stop())
-        return
-      }
-      streamRef.current = stream
-      videoRef.current.srcObject = stream
-      await videoRef.current.play()
-
-      let landmarker
-      try {
-        landmarker = await createPoseLandmarker()
-      } catch {
-        if (!cancelled) setPhase('error')
-        return
-      }
-      if (cancelled) {
-        landmarker.close()
-        return
-      }
-      landmarkerRef.current = landmarker
+      setSessionId(newSessionId)
 
       const ws = new WebSocket(
-        `${WS_BASE}/ws/exercise?session_id=${sessionId}&exercise=${exercise.id}`,
+        `${WS_BASE_URL}/ws/exercise?session_id=${newSessionId}&exercise=${exercise.slug}`,
       )
+      myWs = ws
       wsRef.current = ws
 
       ws.onopen = () => {
+        if (cancelled) return
         ws.send(JSON.stringify({ type: 'init', profile }))
+        setWsStatus('ready')
       }
+
       ws.onmessage = (event) => {
+        if (cancelled) return
         const data = JSON.parse(event.data)
+
+        // 개발용 튜닝 정보 — ack 프레임에도 실려 오므로 window_ready 판정보다 먼저 본다
+        if (data.tuning && Object.keys(data.tuning).length > 0) {
+          setTuning(data.tuning)
+        }
+        if (typeof data.hold_seconds === 'number' && data.hold_seconds > 0) {
+          holdTotalRef.current += data.hold_seconds
+          setHoldTotal(holdTotalRef.current)
+        }
+
         if (data.window_ready) {
           setMessages((prev) => [...data.messages, ...prev])
+          pendingRef.current = [...pendingRef.current, ...data.messages]
+
+          // 팝업/총로그 트리거는 운동 방식에 따라 기준이 다르다.
+          //  - rep 운동(스쿼트 등): 누적 rep이 3회 경계를 넘을 때
+          //  - hold 운동(브릿지/슈퍼맨/플랭크 등): rep_count가 항상 0이라 위 기준으로는
+          //    영원히 안 걸린다. 그래서 누적 유지 시간이 15초 경계를 넘을 때로 잡는다.
+          if (typeof data.rep_count === 'number' && data.rep_count > 0) {
+            const prevTotal = totalRepsRef.current
+            const nextTotal = prevTotal + data.rep_count
+            totalRepsRef.current = nextTotal
+            setTotalReps(nextTotal)
+
+            if (Math.floor(prevTotal / 3) !== Math.floor(nextTotal / 3)) {
+              flushFeedbackBatch()
+            }
+          } else if (
+            typeof data.hold_seconds === 'number' &&
+            data.hold_seconds > 0
+          ) {
+            const prevHold = holdTriggerRef.current
+            const nextHold = prevHold + data.hold_seconds
+            holdTriggerRef.current = nextHold
+
+            if (
+              Math.floor(prevHold / HOLD_POPUP_INTERVAL_S) !==
+              Math.floor(nextHold / HOLD_POPUP_INTERVAL_S)
+            ) {
+              flushFeedbackBatch()
+            }
+          }
         } else if (data.error) {
-          console.warn('[ws]', data.error)
+          setWsError(data.error)
         }
       }
+
       ws.onerror = () => {
-        if (!cancelled) setPhase('error')
+        if (cancelled || closingRef.current) return
+        setWsStatus('error')
+        setWsError('WebSocket 연결에 오류가 발생했어요.')
       }
 
-      const frameLoopStart = performance.now()
-      intervalRef.current = setInterval(() => {
-        if (!activeRef.current) return
-        if (!videoRef.current || !landmarkerRef.current) return
-        if (ws.readyState !== WebSocket.OPEN) return
-        const result = landmarkerRef.current.detectForVideo(videoRef.current, performance.now())
-        const landmarks = result.landmarks?.[0]
-        if (!landmarks) return
-        ws.send(
-          JSON.stringify({
-            type: 'frame',
-            landmarks: toLandmarkPayload(landmarks),
-            timestamp_s: (performance.now() - frameLoopStart) / 1000,
-          }),
-        )
-      }, FRAME_INTERVAL_MS)
-
-      if (!cancelled) setPhase('live')
+      ws.onclose = () => {
+        if (cancelled || closingRef.current) return
+        setWsStatus('error')
+        setWsError('서버와의 연결이 끊어졌어요.')
+      }
     }
 
-    setup()
+    connect()
 
     return () => {
       cancelled = true
-      if (intervalRef.current) clearInterval(intervalRef.current)
-      wsRef.current?.close()
-      landmarkerRef.current?.close()
-      streamRef.current?.getTracks().forEach((t) => t.stop())
+      // 이 실행이 만든 WS를 상태와 무관하게 닫는다(CONNECTING 중이어도 close 가능).
+      if (myWs) {
+        try {
+          myWs.close()
+        } catch {
+          // 이미 닫혔거나 초기 상태면 무시
+        }
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // 프레임 전송: landmarks가 갱신될 때마다 서버로 전달.
+  // 단, 30fps 전량을 터널로 보내면(초당 30 x 33랜드마크 JSON) 트래픽이 커서
+  // 연결이 끊길 수 있다. 서버는 5초 윈도우로 모으니 초당 ~12프레임이면 충분하다.
+  // (1) 최소 전송 간격으로 스로틀 + (2) WS 송신 버퍼가 밀리면 그 프레임은 건너뛴다.
+  const sentFramesRef = useRef(0)
+  const lastSentAtRef = useRef(0)
+  const MIN_SEND_INTERVAL_MS = 80 // 약 12fps
+  const MAX_BUFFERED_BYTES = 200 * 1024 // 송신 버퍼가 이보다 밀리면 프레임 드롭
+  useEffect(() => {
+    // 일시정지/종료확인/상세로그 중 어느 것이든 켜져 있으면 전송을 막는다 —
+    // 예전엔 paused/showEnd만 봐서, 상세로그를 보는 동안엔 계속 전송되고 있었다.
+    if (cameraPaused || wsStatus !== 'ready') return
+    if (landmarks == null) return
+    const now = performance.now()
+    if (now - lastSentAtRef.current < MIN_SEND_INTERVAL_MS) return
+    const ws = wsRef.current
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      // 백프레셔: 아직 안 나간 데이터가 많으면 이번 프레임은 버린다(최신 우선).
+      if (ws.bufferedAmount > MAX_BUFFERED_BYTES) return
+      lastSentAtRef.current = now
+      ws.send(
+        JSON.stringify({
+          type: 'frame',
+          landmarks,
+          timestamp_s: now / 1000,
+        }),
+      )
+      sentFramesRef.current += 1
+      // 예전엔 화면에 보이는 진단 오버레이였던 정보 — 마무리 단계에서 오버레이는 지우고
+      // 디버깅용으로 console.log만 남긴다(10프레임마다, 과도한 로그 방지).
+      if (sentFramesRef.current % 10 === 0) {
+        console.log(
+          `[live] WS:${wsStatus} 전송:${sentFramesRef.current} 관절:${landmarks ? 'O' : 'X'} ` +
+            `신뢰도:${confidence == null ? '-' : Math.round(confidence * 100) + '%'} 카메라:${status}`,
+        )
+      }
+    }
+    // confidence/status는 로그 출력에만 쓰고, 그것 때문에 이 effect가 다시 돌 필요는
+    // 없다(전송 타이밍은 landmarks 갱신에만 반응하면 충분) — 그래서 deps에서 뺀다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [landmarks, cameraPaused, wsStatus])
 
   const mmss = `${String(Math.floor(elapsed / 60)).padStart(2, '0')}:${String(
     elapsed % 60,
   ).padStart(2, '0')}`
 
   const endSession = async () => {
+    if (endingReport) return
+    setEndingReport(true)
+
+    closingRef.current = true
+
+    if (wsRef.current) {
+      wsRef.current.close()
+    }
+
     // 이번 세션에서 모인 계약③ FeedbackMessage 들(최신이 위라 시간순으로 뒤집음)
     const report = [...messages].reverse()
-    // rep_count는 /ws/exercise 응답에 포함되지 않아(FeedbackResponse에 없음)
-    // 경과 시간 기반 추정을 그대로 유지(약 4초/회).
-    const repCount = Math.floor(elapsed / 4)
 
-    if (intervalRef.current) clearInterval(intervalRef.current)
-    wsRef.current?.close()
-    landmarkerRef.current?.close()
-    streamRef.current?.getTracks().forEach((t) => t.stop())
+    let session = null
+    try {
+      if (sessionId) {
+        await fetch(`${API_BASE_URL}/session/end/${sessionId}`, { method: 'POST' })
+      }
+    } catch {
+      // 세션 종료 저장 실패해도 리포트 화면까지는 진행한다
+    }
 
-    const sessionId = sessionIdRef.current
-    if (sessionId) {
-      try {
-        await fetch(`${API_BASE}/session/end/${sessionId}`, { method: 'POST' })
-      } catch {
-        // 종료 기록 실패해도 로컬 리포트는 그대로 보여준다
+    try {
+      const today = todayLocal()
+      const sessions = await fetchSessions(getDeviceId(), today, today)
+      session = sessions.find((s) => s.session_id === sessionId) ?? null
+    } catch {
+      session = null
+    }
+
+    if (!session) {
+      session = {
+        session_id: sessionId,
+        duration_s: elapsed,
+        // 서버 조회에 실패했을 때의 폴백 — 화면에서 센 누적값을 그대로 쓴다.
+        // hold 운동은 rep이 0이므로 유지 시간을 함께 넘긴다.
+        rep_count: totalRepsRef.current,
+        hold_seconds: holdTotalRef.current,
+        date: todayLocal(),
       }
     }
 
-    // 실제 기록으로 저장(localStorage) 후, 저장된 세션을 리포트로 전달
-    const session = addSession({
-      exercise: exercise.id,
-      durationSec: elapsed,
-      repCount,
-      report,
-    })
     navigate('/app/records/report', {
-      state: { session, report },
+      state: { session, report, from: 'live' },
     })
   }
 
@@ -186,41 +391,148 @@ export default function LiveExercise() {
     <div className="live">
       <div className="live__top">
         <span className="live__timer">{mmss}</span>
-        <span className="live__reps">스쿼트 · {messages.length}개 피드백</span>
+        <span className="live__reps">
+          {exercise.name} ·{' '}
+          {tuning?.mode === 'hold'
+            ? `유지 ${Math.round(holdTotal)}초`
+            : `${totalReps}회`}
+        </span>
       </div>
 
-      <div className="live__stage">
-        <video ref={videoRef} className="live__video" muted playsInline />
-        {phase === 'connecting' && (
-          <span className="live__paused-badge">카메라/서버 연결 중...</span>
+      <div className="live__stage" style={{ position: 'relative' }}>
+        {/* showEnd(종료 확인 팝업)도 일시정지와 동일한 배지로 보여준다 */}
+        {(paused || showEnd) && <span className="live__paused-badge">일시정지됨</span>}
+
+        {/* 개발용 튜닝 오버레이 (plus_exercise.md 2단계 실측용).
+            PC의 category_tuner.py를 폰에서 대신한다 — 지금 보는 관절의 실시간
+            각도와 임계값, 판정 상태(IN-RANGE/OUT, 또는 down/up)를 표시.
+            임계값 실측이 끝나면 이 블록과 관련 상태를 제거할 것. */}
+        {tuning && (
+          <div className={'tune' + (tuning.in_range ? ' tune--ok' : '')}>
+            <div className="tune__row">
+              <span className="tune__joint">{tuning.joint}</span>
+              <span className="tune__angle">{tuning.angle}°</span>
+            </div>
+            {tuning.mode === 'hold' ? (
+              <>
+                <div className="tune__range">
+                  범위 {tuning.min}~{tuning.max}°
+                </div>
+                <div className="tune__state">
+                  {tuning.in_range ? 'IN-RANGE ✓' : 'OUT ✕'}
+                </div>
+                <div className="tune__total">유지 {holdTotal.toFixed(1)}초</div>
+              </>
+            ) : (
+              <>
+                <div className="tune__range">
+                  down &lt;{tuning.down}° / up &gt;{tuning.up}°
+                </div>
+                <div className="tune__total">rep {totalRepsRef.current}회</div>
+              </>
+            )}
+          </div>
         )}
-        {phase === 'error' && (
-          <span className="live__paused-badge">
-            연결에 실패했어요. 카메라 권한과 서버 상태를 확인해주세요.
-          </span>
+        <video
+          ref={bgVideoRef}
+          className="camera-video-bg"
+          muted
+          playsInline
+          autoPlay
+          aria-hidden="true"
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+          }}
+        />
+        <video
+          ref={videoRef}
+          className="camera-video-main"
+          muted
+          playsInline
+          autoPlay
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+            transform: 'scaleX(-1)', // 전면 카메라 거울 모드 (CameraGuard와 통일)
+          }}
+        />
+        <canvas
+          ref={canvasRef}
+          className="camera-overlay-main"
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+            transform: 'scaleX(-1)', // video와 동일하게 반전(스켈레톤 정렬 유지)
+          }}
+        />
+
+        {/* 팝업(행동교정): 3n번째 rep 직후 상단에 잠깐 떴다 fade-out.
+            상시 노출 대신 트리거 시점에만 하나씩 보여줘서 로그 과다 노출을 줄인다.
+            전체 목록(총로그탭)은 별도로 제공된다. */}
+        {popup && (
+          <div className="fb-popup" key={popup._popupKey}>
+            <FeedbackCard msg={popup} />
+          </div>
         )}
-        {paused && phase === 'live' && (
-          <span className="live__paused-badge">일시정지됨</span>
-        )}
+
+        {/* 총로그탭 진입 버튼: 카메라 화면 우측 하단 */}
+        <button
+          type="button"
+          className="log-toggle-btn"
+          onClick={() => setShowLog(true)}
+        >
+          상세 로그
+        </button>
       </div>
 
-      {/* 피드백 스트림 */}
-      <div className="fb__feed">
-        {messages.length === 0 && (
-          <p className="fb__empty">
-            자세를 잡고 운동을 시작하면 패턴을 관찰해 알려드려요.
-          </p>
-        )}
-        {messages.map((m, i) => (
-          <FeedbackCard key={i} msg={m} />
-        ))}
-      </div>
+      {/* 총로그탭: 팝업 내용 + 상세 관측 전체(3rep 단위 dedupe) — 반투명 오버레이,
+          뒤 운동화면이 비치도록 배경은 blur + 반투명만 준다. */}
+      {showLog && (
+        <div className="log-overlay" onClick={() => setShowLog(false)}>
+          <div className="log-overlay__panel" onClick={(e) => e.stopPropagation()}>
+            <div className="log-overlay__head">
+              <h3>상세 로그</h3>
+              <button
+                type="button"
+                className="log-overlay__close"
+                aria-label="닫기"
+                onClick={() => setShowLog(false)}
+              >
+                ×
+              </button>
+            </div>
+            <div className="log-overlay__list">
+              {logEntries.length === 0 ? (
+                <p className="fb__empty">아직 기록된 피드백이 없어요.</p>
+              ) : (
+                logEntries.map((m, i) => (
+                  <FeedbackCard key={logEntries.length - i} msg={m} />
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      {wsStatus === 'error' && (
+        <p className="text-muted" style={{ margin: 0 }}>
+          연결에 문제가 있어요: {wsError}
+        </p>
+      )}
 
       <div className="live__actions">
         <button
           className="btn btn--ghost"
           onClick={() => setPaused((p) => !p)}
-          disabled={phase !== 'live'}
         >
           {paused ? '재개' : '일시정지'}
         </button>
@@ -245,8 +557,12 @@ export default function LiveExercise() {
               >
                 계속하기
               </button>
-              <button className="btn btn--primary" onClick={endSession}>
-                종료하고 리포트 보기
+              <button
+                className="btn btn--primary"
+                onClick={endSession}
+                disabled={endingReport}
+              >
+                {endingReport ? '처리 중...' : '종료하고 리포트 보기'}
               </button>
             </div>
           </div>
