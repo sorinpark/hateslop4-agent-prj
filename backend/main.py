@@ -36,6 +36,9 @@ from db import repository as db_repo
 # feature_extractor.py 를 그대로 가져오려면 vision/ 자체를 sys.path에 넣어야 한다.
 sys.path.insert(0, str(Path(__file__).resolve().parent / "vision"))
 from feature_extractor import WindowAccumulator  # noqa: E402
+# 개발용 진단(_tuning_info)에서 현재 각도/임계값을 계산하는 데 쓴다.
+from angles import compute_joint_angles  # noqa: E402
+from categories import get_category  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -276,6 +279,46 @@ async def _handle_init(websocket: WebSocket, state: dict, data: dict) -> None:
     await websocket.send_json({"ack": True, "profile_loaded": True})
 
 
+def _tuning_info(state: dict, landmarks) -> dict:
+    """폰에서 임계값을 튜닝할 수 있도록, 매 프레임의 판정 근거를 만들어 준다.
+
+    category_tuner.py(PC 웹캠 전용)가 화면에 띄우는 것과 같은 정보를 앱으로도
+    보기 위한 개발용 진단 데이터다. 실측 튜닝이 끝나면 이 함수와 호출부,
+    프론트 오버레이를 같이 제거하면 된다(plus_exercise.md 2단계).
+
+    hold 모드면 지금 각도가 허용 범위 안(IN-RANGE)인지, rep 모드면 down/up 중
+    어느 상태인지를 실시간으로 알려준다.
+    """
+    category = get_category(state["exercise"])
+    angles = compute_joint_angles(landmarks)
+
+    pair = category.hold_joint_pair if category.mode == "hold" else category.rep_joint_pair
+    if not pair:
+        return {}
+
+    values = [angles[j] for j in pair if j in angles]
+    if not values:
+        return {}
+    angle = sum(values) / len(values)
+
+    info = {
+        "category": category.name,
+        "mode": category.mode,
+        # 좌우 평균 각도(판정에 실제로 쓰이는 값)
+        "angle": round(angle, 1),
+        # 어떤 관절을 보고 있는지 ("L_trunk" -> "trunk")
+        "joint": pair[0][2:],
+    }
+    if category.mode == "hold":
+        info["min"] = category.hold_min_deg
+        info["max"] = category.hold_max_deg
+        info["in_range"] = category.hold_min_deg <= angle <= category.hold_max_deg
+    else:
+        info["down"] = category.rep_down_threshold_deg
+        info["up"] = category.rep_up_threshold_deg
+    return info
+
+
 async def _handle_frame(websocket: WebSocket, session_id: str, state: dict, data: dict) -> None:
     raw_landmarks = data.get("landmarks")
     if not isinstance(raw_landmarks, list) or len(raw_landmarks) != EXPECTED_LANDMARK_COUNT:
@@ -285,9 +328,15 @@ async def _handle_frame(websocket: WebSocket, session_id: str, state: dict, data
     landmarks = _to_landmark_objects(raw_landmarks)
     state["accumulator"].add_frame(landmarks, data["timestamp_s"])
 
+    # 개발용: 매 프레임 판정 근거(각도/상태)를 함께 보내 폰에서 튜닝할 수 있게 한다.
+    try:
+        tuning = _tuning_info(state, landmarks)
+    except Exception:
+        tuning = {}
+
     summary = state["accumulator"].get_summary_if_ready(session_id, state["exercise"])
     if summary is None:
-        await websocket.send_json({"ack": True})
+        await websocket.send_json({"ack": True, "tuning": tuning})
         return
 
     print(json.dumps(summary.model_dump(), indent=2, ensure_ascii=False))
@@ -326,6 +375,9 @@ async def _handle_frame(websocket: WebSocket, session_id: str, state: dict, data
         "messages": [m.model_dump() for m in response.messages],
         "guardrail_passed": response.guardrail_passed,
         "rep_count": summary.window.rep_count,
+        # 개발용 진단(폰 튜닝): 이 윈도우의 유지 시간까지 함께 보낸다.
+        "hold_seconds": summary.window.hold_seconds,
+        "tuning": tuning,
     })
 
 

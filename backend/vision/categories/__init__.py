@@ -70,22 +70,29 @@ SLUG_TO_CATEGORY: dict[str, str] = {
     "bicycle-crunches": "core_flex",
     "flutter-kicks": "core_flex",
     "leg-raises": "core_flex",
-    # 등척성 유지형
-    "chest-expansions": "isometric",
-    "bridges": "isometric",
-    "superman": "isometric",
-    "chest-squeezes": "isometric",
-    "back-lifts": "isometric",
+    # 등척성 유지형 — 몸을 '펴서' 버티는 계열(각도가 클수록 정자세)
+    # 선 자세 가슴 운동은 몸통이 계속 직립이라 trunk 로 판정이 안 된다 →
+    # 어깨 각도로 보는 chest_hold 로 분리(chest_hold.py 참고).
+    "chest-expansions": "chest_hold",
+    # 스퀴즈는 팔을 '모으는' 동작이라 어깨 각도가 반대로 작아진다(20~50°) →
+    # 익스팬션 범위로는 정자세가 OUT이 떠서 분리(chest_squeeze.py 참고).
+    "chest-squeezes": "chest_squeeze",
     "alt-arm-leg-plank": "isometric",
     "shoulder-taps": "isometric",
     "elbow-plank": "isometric",
+    # 젖히기 유지형 — 몸을 '젖혀서' 버티는 계열(각도가 작아질수록 정자세).
+    # 실측 결과 trunk 각도가 isometric과 정반대로 움직여 분리했다(extension.py 참고).
+    "bridges": "extension",
+    "superman": "extension",
+    # 백리프트는 다리를 들지 않아 각도가 얕게만 꺾여(정점 165°) extension(max 158°)
+    # 으로는 안 잡힌다. 자세한 근거는 back_lift.py 참고.
+    "back-lifts": "back_lift",
     # 복합/전신형
     "climbers": "compound",
     "get-ups": "compound",
     "plank-jump-ins": "compound",
     "side-to-side-chops": "compound",
     # 타격형
-    "backfists": "strike",
     "punches": "strike",
 }
 

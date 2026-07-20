@@ -61,12 +61,20 @@ class WindowAccumulator:
         if pair is None:
             return
 
-        avg = (angles[pair[0]] + angles[pair[1]]) / 2
+        left, right = angles[pair[0]], angles[pair[1]]
+        # 기본은 좌우 평균. 좌우를 번갈아 쓰는 운동(strike)만 "더 펴진 쪽"을 본다
+        # — 가려진 반대쪽 팔 각도가 평균을 끌어내려 rep을 놓치는 걸 막기 위함.
+        # (자세한 배경은 categories/base.py 의 rep_use_max_of_pair 주석 참고)
+        if self.category.rep_use_max_of_pair:
+            value = max(left, right)
+        else:
+            value = (left + right) / 2
+
         down = self.category.rep_down_threshold_deg
         up = self.category.rep_up_threshold_deg
-        if self._rep_state == "up" and avg < down:
+        if self._rep_state == "up" and value < down:
             self._rep_state = "down"
-        elif self._rep_state == "down" and avg > up:
+        elif self._rep_state == "down" and value > up:
             self._rep_state = "up"
             self._rep_count += 1
 

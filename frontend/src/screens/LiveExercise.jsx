@@ -8,6 +8,9 @@ import { fetchSessions } from '../api/sessions.js'
 import { useExercise } from '../state/ExerciseContext.jsx'
 
 const POPUP_DURATION_MS = 5000 // 팝업 노출 시간(4~5초 범위 중 5초로 시작)
+// hold 운동(플랭크/브릿지/슈퍼맨 등)의 팝업 주기.
+// rep 운동은 "3회마다" 띄우는데, hold 운동은 rep이 안 세이므로 유지 시간 기준으로 띄운다.
+const HOLD_POPUP_INTERVAL_S = 15
 
 // 두 피드백 메시지가 "같은 내용"인지: area 일치 + evidence 키 대분류(prefix)가 겹치면 같은 내용으로 본다.
 // (LLM이 매번 다른 문장을 생성해서 텍스트 완전일치로는 못 묶으므로 구조화된 필드로 판정)
@@ -106,6 +109,36 @@ export default function LiveExercise() {
   const [wsError, setWsError] = useState(null)
   const [endingReport, setEndingReport] = useState(false)
 
+  // ── 개발용 튜닝 오버레이 (plus_exercise.md 2단계 실측용) ──────────────
+  // 서버가 매 프레임 보내주는 판정 근거(각도/임계값/상태). PC의 category_tuner.py를
+  // 폰에서 대신하기 위한 것으로, 임계값 실측이 끝나면 이 상태와 오버레이를 제거한다.
+  const [tuning, setTuning] = useState(null)
+  // hold 모드(등척성)의 누적 유지 시간 — 윈도우마다 서버가 보내주는 값을 합산
+  const holdTotalRef = useRef(0)
+  const [holdTotal, setHoldTotal] = useState(0)
+  // hold 운동의 팝업 트리거용 누적 시간(위 표시용과 별개로 관리)
+  const holdTriggerRef = useRef(0)
+  // 화면 표시용 누적 rep (ref는 갱신돼도 리렌더가 안 되므로 state로도 들고 있는다)
+  const [totalReps, setTotalReps] = useState(0)
+
+  /* 모아둔 피드백을 총로그에 기록하고 팝업 하나를 띄운다.
+     rep 운동(3회마다)과 hold 운동(15초마다) 양쪽에서 호출된다. */
+  const flushFeedbackBatch = () => {
+    const batch = pendingRef.current
+    const chosen = pickPopupCandidate(batch, messagesRef.current)
+    const deduped = dedupeBatch(batch)
+    pendingRef.current = []
+
+    if (deduped.length > 0) {
+      setLogEntries((prev) => [...deduped, ...prev])
+    }
+    if (chosen) {
+      if (popupTimeoutRef.current) clearTimeout(popupTimeoutRef.current)
+      setPopup({ ...chosen, _popupKey: Date.now() })
+      popupTimeoutRef.current = setTimeout(() => setPopup(null), POPUP_DURATION_MS)
+    }
+  }
+
   const wsRef = useRef(null)
   useEffect(() => {
     const bgVideo = bgVideoRef.current
@@ -185,30 +218,46 @@ export default function LiveExercise() {
       ws.onmessage = (event) => {
         if (cancelled) return
         const data = JSON.parse(event.data)
+
+        // 개발용 튜닝 정보 — ack 프레임에도 실려 오므로 window_ready 판정보다 먼저 본다
+        if (data.tuning && Object.keys(data.tuning).length > 0) {
+          setTuning(data.tuning)
+        }
+        if (typeof data.hold_seconds === 'number' && data.hold_seconds > 0) {
+          holdTotalRef.current += data.hold_seconds
+          setHoldTotal(holdTotalRef.current)
+        }
+
         if (data.window_ready) {
           setMessages((prev) => [...data.messages, ...prev])
           pendingRef.current = [...pendingRef.current, ...data.messages]
 
+          // 팝업/총로그 트리거는 운동 방식에 따라 기준이 다르다.
+          //  - rep 운동(스쿼트 등): 누적 rep이 3회 경계를 넘을 때
+          //  - hold 운동(브릿지/슈퍼맨/플랭크 등): rep_count가 항상 0이라 위 기준으로는
+          //    영원히 안 걸린다. 그래서 누적 유지 시간이 15초 경계를 넘을 때로 잡는다.
           if (typeof data.rep_count === 'number' && data.rep_count > 0) {
             const prevTotal = totalRepsRef.current
             const nextTotal = prevTotal + data.rep_count
             totalRepsRef.current = nextTotal
+            setTotalReps(nextTotal)
 
-            // 누적 rep이 3의 배수 경계를 넘었으면 팝업 트리거 + 총로그탭에 dedupe해서 기록
             if (Math.floor(prevTotal / 3) !== Math.floor(nextTotal / 3)) {
-              const batch = pendingRef.current
-              const chosen = pickPopupCandidate(batch, messagesRef.current)
-              const deduped = dedupeBatch(batch)
-              pendingRef.current = []
+              flushFeedbackBatch()
+            }
+          } else if (
+            typeof data.hold_seconds === 'number' &&
+            data.hold_seconds > 0
+          ) {
+            const prevHold = holdTriggerRef.current
+            const nextHold = prevHold + data.hold_seconds
+            holdTriggerRef.current = nextHold
 
-              if (deduped.length > 0) {
-                setLogEntries((prev) => [...deduped, ...prev])
-              }
-              if (chosen) {
-                if (popupTimeoutRef.current) clearTimeout(popupTimeoutRef.current)
-                setPopup({ ...chosen, _popupKey: Date.now() })
-                popupTimeoutRef.current = setTimeout(() => setPopup(null), POPUP_DURATION_MS)
-              }
+            if (
+              Math.floor(prevHold / HOLD_POPUP_INTERVAL_S) !==
+              Math.floor(nextHold / HOLD_POPUP_INTERVAL_S)
+            ) {
+              flushFeedbackBatch()
             }
           }
         } else if (data.error) {
@@ -325,7 +374,10 @@ export default function LiveExercise() {
       session = {
         session_id: sessionId,
         duration_s: elapsed,
-        rep_count: 0,
+        // 서버 조회에 실패했을 때의 폴백 — 화면에서 센 누적값을 그대로 쓴다.
+        // hold 운동은 rep이 0이므로 유지 시간을 함께 넘긴다.
+        rep_count: totalRepsRef.current,
+        hold_seconds: holdTotalRef.current,
         date: todayLocal(),
       }
     }
@@ -339,12 +391,48 @@ export default function LiveExercise() {
     <div className="live">
       <div className="live__top">
         <span className="live__timer">{mmss}</span>
-        <span className="live__reps">{exercise.name} · {messages.length}개 피드백</span>
+        <span className="live__reps">
+          {exercise.name} ·{' '}
+          {tuning?.mode === 'hold'
+            ? `유지 ${Math.round(holdTotal)}초`
+            : `${totalReps}회`}
+        </span>
       </div>
 
       <div className="live__stage" style={{ position: 'relative' }}>
         {/* showEnd(종료 확인 팝업)도 일시정지와 동일한 배지로 보여준다 */}
         {(paused || showEnd) && <span className="live__paused-badge">일시정지됨</span>}
+
+        {/* 개발용 튜닝 오버레이 (plus_exercise.md 2단계 실측용).
+            PC의 category_tuner.py를 폰에서 대신한다 — 지금 보는 관절의 실시간
+            각도와 임계값, 판정 상태(IN-RANGE/OUT, 또는 down/up)를 표시.
+            임계값 실측이 끝나면 이 블록과 관련 상태를 제거할 것. */}
+        {tuning && (
+          <div className={'tune' + (tuning.in_range ? ' tune--ok' : '')}>
+            <div className="tune__row">
+              <span className="tune__joint">{tuning.joint}</span>
+              <span className="tune__angle">{tuning.angle}°</span>
+            </div>
+            {tuning.mode === 'hold' ? (
+              <>
+                <div className="tune__range">
+                  범위 {tuning.min}~{tuning.max}°
+                </div>
+                <div className="tune__state">
+                  {tuning.in_range ? 'IN-RANGE ✓' : 'OUT ✕'}
+                </div>
+                <div className="tune__total">유지 {holdTotal.toFixed(1)}초</div>
+              </>
+            ) : (
+              <>
+                <div className="tune__range">
+                  down &lt;{tuning.down}° / up &gt;{tuning.up}°
+                </div>
+                <div className="tune__total">rep {totalRepsRef.current}회</div>
+              </>
+            )}
+          </div>
+        )}
         <video
           ref={bgVideoRef}
           className="camera-video-bg"

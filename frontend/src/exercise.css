@@ -299,6 +299,62 @@
 .live__stage canvas {
   object-position: center center;
 }
+/* ── 개발용 튜닝 오버레이 (plus_exercise.md 2단계 실측용) ──────────────
+   폰에서 임계값을 맞추기 위한 임시 표시. 실측이 끝나면 이 블록과
+   LiveExercise.jsx의 .tune 마크업을 함께 제거한다. */
+.tune {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 4;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgb(0 0 0 / 65%);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: right;
+  pointer-events: none;
+  border: 1px solid var(--warn-dot);
+  font-variant-numeric: tabular-nums;
+}
+/* 범위 안(IN-RANGE)일 때만 테두리를 강조색으로 — 멀리서도 판정이 보이게 */
+.tune--ok {
+  border-color: var(--accent);
+}
+.tune__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.tune__joint {
+  opacity: 0.7;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+.tune__angle {
+  font-size: 20px;
+  font-weight: 700;
+}
+.tune__range {
+  opacity: 0.75;
+  font-size: 11px;
+}
+.tune__state {
+  font-weight: 700;
+  margin-top: 2px;
+}
+.tune--ok .tune__state {
+  color: var(--accent);
+}
+.tune__total {
+  margin-top: 2px;
+  opacity: 0.9;
+}
+
 .live__paused-badge {
   position: absolute;
   top: 12px;

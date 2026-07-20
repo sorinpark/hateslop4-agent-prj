@@ -58,7 +58,6 @@ export const EXERCISES = [
   { id: '09_high-knees', name: '하이 니(무릎 올리기)', parts: ['하체', '코어'], cameraHint: HINT.frontFull },
   { id: '10_donkey-kicks', name: '동키 킥', parts: ['하체', '코어'], cameraHint: HINT.sideFull },
   { id: '11_tricep-dips', name: '트라이셉 딥스', parts: ['삼두', '어깨'], cameraHint: HINT.sideUpper },
-  { id: '12_backfists', name: '백피스트', parts: ['어깨', '전완근'], cameraHint: HINT.frontUpper },
   { id: '13_scapular-shrugs', name: '견갑 슈러그', parts: ['등', '어깨'], cameraHint: HINT.frontUpper },
   { id: '14_chest-expansions', name: '체스트 익스팬션', parts: ['가슴', '어깨'], cameraHint: HINT.frontUpper },
   { id: '15_bicycle-crunches', name: '바이시클 크런치', parts: ['코어'], cameraHint: HINT.sideFloor },

@@ -22,6 +22,16 @@ class CategoryConfig:
     rep_down_threshold_deg: float | None = None
     rep_up_threshold_deg: float | None = None
 
+    # 좌우를 평균내지 않고 "더 펴진 쪽(각도가 큰 쪽)"만 보고 판정할지 여부.
+    # 기본값 False = 기존과 동일(좌우 평균) — 다른 카테고리는 영향 없음.
+    #
+    # True 로 두는 경우: 좌우를 번갈아 쓰는 운동(펀치/백피스트).
+    # 측면 촬영에서 카메라 먼 쪽 팔은 몸통에 가려(오클루전) 각도가 제대로 안 잡히는데,
+    # 평균을 쓰면 그 값이 발목을 잡아 가까운 팔을 다 뻗어도 up 임계값을 못 넘긴다.
+    # 그래서 "좌우 중 하나라도 뻗었으면 뻗은 것"으로 보도록 max 를 쓴다.
+    # (plus_exercise.md 268줄이 예고한 예외 케이스)
+    rep_use_max_of_pair: bool = False
+
     # ── mode="hold" 전용: 자세 유지 시간 판정 ───────────────────────────
     # 좌우 평균을 낼 관절 쌍(예: 플랭크의 trunk). mode="rep"이면 안 쓴다.
     hold_joint_pair: tuple[str, str] | None = None
