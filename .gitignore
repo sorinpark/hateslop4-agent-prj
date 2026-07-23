@@ -10,6 +10,9 @@ __pycache__/
 # 카테고리 임계값 튜닝 도구(category_tuner.py)가 남기는 개인 테스트 로그
 backend/vision/tuning_logs/
 
+# 개인 작업 메모 (담당자별 TODO)
+C_Todo.md
+
 # C extensions
 *.so
 

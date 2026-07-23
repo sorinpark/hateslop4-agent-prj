@@ -63,12 +63,24 @@ SLUG_TO_CATEGORY: dict[str, str] = {
     "doorframe-rows": "pull",
     "body-rows": "pull",
     "sitting-pull-ups": "pull",
-    "reverse-angels": "pull",
+    # reverse-angels는 팔꿈치를 편 채로 어깨를 축으로 원을 그리는 동작이라
+    # pull(팔꿈치 기반)로는 안 맞음(2026-07-23 실측 - 10회에 22~24회로 과다
+    # 카운트, margin을 120까지 올려도 해소 안 됨) -> shoulder_arc로 분리.
+    # 자세한 배경은 categories/shoulder_arc.py 참고.
+    "reverse-angels": "shoulder_arc",
     # 코어 굽힘형
     "sit-ups": "core_flex",
     "reverse-crunches": "core_flex",
-    "bicycle-crunches": "core_flex",
-    "flutter-kicks": "core_flex",
+    # bicycle-crunches는 core_flex와 관찰 관절(힙 각도)은 같지만 각도 변화 폭이
+    # 훨씬 작아(무릎을 크게 안 벌림) core_flex 임계값으로는 안 맞음 - 실측
+    # 결과(2026-07-23) core_flex_shallow로 분리. 자세한 배경은
+    # categories/core_flex_shallow.py 참고.
+    "bicycle-crunches": "core_flex_shallow",
+    # flutter-kicks는 bicycle-crunches보다도 각도 변화 폭이 훨씬 작음(허리는
+    # 거의 안 움직이고 발만 빠르게 움직임) - core_flex_shallow(margin=30)로도
+    # 안 맞아서 core_flex_micro(margin=9)로 별도 분리. 자세한 배경은
+    # categories/core_flex_micro.py 참고.
+    "flutter-kicks": "core_flex_micro",
     "leg-raises": "core_flex",
     # 등척성 유지형 — 몸을 '펴서' 버티는 계열(각도가 클수록 정자세)
     # 선 자세 가슴 운동은 몸통이 계속 직립이라 trunk 로 판정이 안 된다 →

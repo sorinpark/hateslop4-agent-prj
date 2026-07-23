@@ -32,6 +32,16 @@ class CategoryConfig:
     # (plus_exercise.md 268줄이 예고한 예외 케이스)
     rep_use_max_of_pair: bool = False
 
+    # down 상태에서 값이 얼마나 다시 올라오면(트로프 대비 반등폭) rep 완료로 볼지.
+    # None(기본값) = 기존과 동일하게 rep_up_threshold_deg(절대각)만 본다 — 다른 카테고리는 영향 없음.
+    #
+    # 설정하는 경우: 반복마다 "다 올라온 지점"의 절대각이 사람/속도에 따라 들쭉날쭉한 운동
+    # (예: sit-ups류 — 매번 완전히 눕지 않고 얕게 반복하는 경우가 흔함). 절대각 임계값
+    # 하나로는 못 잡아서, "내려간 지점(트로프) 대비 이만큼 다시 올라오면 rep으로 인정"하는
+    # 상대적 기준을 rep_up_threshold_deg와 OR 조건으로 추가한다.
+    # (2026-07-23 sit-ups 튜닝 중 발견 — plus_exercise.md STEP 2)
+    rep_rise_margin_deg: float | None = None
+
     # ── mode="hold" 전용: 자세 유지 시간 판정 ───────────────────────────
     # 좌우 평균을 낼 관절 쌍(예: 플랭크의 trunk). mode="rep"이면 안 쓴다.
     hold_joint_pair: tuple[str, str] | None = None
