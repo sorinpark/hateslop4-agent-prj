@@ -47,7 +47,7 @@ from mediapipe.tasks.python import vision as mp_vision
 
 from angles import JOINTS as ALL_JOINTS, compute_joint_angles
 from categories import get_category
-from feature_extractor import WindowAccumulator
+from feature_extractor import REP_VIS_THRESHOLD, WindowAccumulator
 
 DEFAULT_EXERCISE = "squats"
 
@@ -119,7 +119,7 @@ def main():
     log_path = LOG_DIR / f"{exercise}_{datetime.now():%Y%m%d_%H%M%S}.csv"
     log_file = open(log_path, "w", newline="", encoding="utf-8")
     log_writer = csv.writer(log_file)
-    log_writer.writerow(["t_s", "angle_deg", "rep_state_or_in_range", "total_reps_or_hold_s"])
+    log_writer.writerow(["t_s", "angle_deg", "left_deg", "right_deg", "rep_state_or_in_range", "total_reps_or_hold_s", "vis"])
     print(f"각도 로그 저장 위치: {log_path}")
 
     accumulator = WindowAccumulator(window_seconds=5.0, exercise=exercise)
@@ -159,13 +159,20 @@ def main():
                     live_angles = compute_joint_angles(landmarks)
                     now_s = time.time() - start_time
 
+                    # 이 프레임을 먼저 반영해야 아래 표시되는 state/vis가 지금 이 프레임
+                    # 기준이 된다(기존엔 add_frame을 맨 뒤에서 불러서 한 프레임 밀려 보였음).
+                    accumulator.add_frame(landmarks, now_s)
+                    vis = accumulator.last_vis
+
                     y = 30
                     cv2.putText(frame, f"exercise={exercise} category={category.name}",
                                 (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, CYAN, 2)
                     y += 28
 
                     if tracked_pair:
-                        avg = (live_angles[tracked_pair[0]] + live_angles[tracked_pair[1]]) / 2
+                        left_v = live_angles[tracked_pair[0]]
+                        right_v = live_angles[tracked_pair[1]]
+                        avg = (left_v + right_v) / 2
 
                         if category.mode == "hold":
                             in_range = (
@@ -179,15 +186,22 @@ def main():
                                 f"angle={avg:5.1f}deg  range=[{category.hold_min_deg},{category.hold_max_deg}]  {status}",
                                 (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, YELLOW, 2,
                             )
-                            log_writer.writerow([f"{now_s:.2f}", f"{avg:.2f}", status, f"{total_hold_s:.2f}"])
+                            log_writer.writerow([f"{now_s:.2f}", f"{avg:.2f}", f"{left_v:.2f}", f"{right_v:.2f}", status, f"{total_hold_s:.2f}", f"{vis:.3f}"])
                         else:
                             cv2.putText(
                                 frame,
-                                f"angle={avg:5.1f}deg  down<{category.rep_down_threshold_deg} "
+                                f"angle={avg:5.1f}deg L={left_v:5.1f} R={right_v:5.1f}  down<{category.rep_down_threshold_deg} "
                                 f"up>{category.rep_up_threshold_deg}  state={accumulator.rep_state}",
                                 (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, YELLOW, 2,
                             )
-                            log_writer.writerow([f"{now_s:.2f}", f"{avg:.2f}", accumulator.rep_state, total_reps])
+                            log_writer.writerow([f"{now_s:.2f}", f"{avg:.2f}", f"{left_v:.2f}", f"{right_v:.2f}", accumulator.rep_state, total_reps, f"{vis:.3f}"])
+                        y += 28
+                        vis_color = GREEN if vis >= REP_VIS_THRESHOLD else RED
+                        cv2.putText(
+                            frame,
+                            f"vis(confidence gate)={vis:.2f}  (REP_VIS_THRESHOLD={REP_VIS_THRESHOLD})",
+                            (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, vis_color, 2,
+                        )
                         y += 28
 
                     cv2.putText(
@@ -196,7 +210,6 @@ def main():
                         (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, YELLOW, 2,
                     )
 
-                    accumulator.add_frame(landmarks, now_s)
                     summary = accumulator.get_summary_if_ready("tuner_session", exercise)
                     if summary is not None:
                         total_reps += summary.window.rep_count

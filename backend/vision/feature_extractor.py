@@ -13,31 +13,81 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from schemas import Confidence, FeatureSummary, Window  # noqa: E402
 
-from angles import compute_joint_angles  # noqa: E402
+from angles import JOINTS, compute_joint_angles  # noqa: E402
 from categories import get_category  # noqa: E402
+from categories.base import CategoryConfig  # noqa: E402
 
-# 신뢰도 계산에 쓰는 랜드마크: 어깨(11,12) + 힙/무릎/발목/발끝(23~28, 31, 32)
-CONFIDENCE_LANDMARK_IDXS = (11, 12, 23, 24, 25, 26, 27, 28, 31, 32)
+# 스쿼트 전용으로 고정돼 있던 신뢰도 랜드마크(어깨+힙/무릎/발목/발끝) - 카테고리
+# 관절 정보가 비어있는 예외적인 경우에만 쓰는 폴백값.
+_FALLBACK_CONFIDENCE_LANDMARK_IDXS = (11, 12, 23, 24, 25, 26, 27, 28, 31, 32)
 CONFIDENCE_THRESHOLD = 0.6
 
 REP_VIS_THRESHOLD = 0.5  # 프레임 평균 visibility가 이 아래면 rep 판정에서 제외 (노이즈 오탐 방지)
+
+# 직전에 정상 인정된 프레임 대비 이 각속도(도/초)를 넘게 각도가 튀면 트래킹 글리치로
+# 보고 그 프레임은 rep 판정에서 건너뛴다. reverse-angels 실측(2026-07-23)에서 발견 -
+# 팔이 카메라 각도상 겹치는 구간에서 vis(신뢰도)는 멀쩡한데(0.6대) 각도만 한 프레임
+# (0.03~0.04초) 사이 70~160도 튀었다가 돌아오는 경우가 있었음(예: 178.86도 -> 21.59도,
+# 초당 1900~5300도 - 사람이 낼 수 없는 속도). 처음엔 프레임당 고정 각도(60도)로
+# 걸렀는데, 스쿼트처럼 느린 프레임 간격(0.3초)으로 80도가 정상적으로 변하는 케이스까지
+# 걸러버려서(test_rep_count_down_then_up_counts_one 회귀) 각속도 기준으로 변경.
+# 실측 최저 글리치 속도(약 1900도/초)보다 충분히 낮게, 사람이 낼 수 있는 가장 빠른
+# 동작(권투 스트라이크류 기준 1000도/초 안팎)보다는 높게 잡음.
+REP_MAX_ANGULAR_VELOCITY_DEG_PER_S = 1000.0
+
+
+def _category_joint_names(cat: CategoryConfig) -> set[str]:
+    """이 카테고리의 계산에 실제로 쓰이는 관절 이름(L_/R_ 접두어 포함) 전체."""
+    bases = set(cat.lr_diff_joints) | set(cat.stability_joints)
+    names = {f"{side}_{base}" for base in bases for side in ("L", "R")}
+    if cat.load_shift_joint_pair:
+        names |= set(cat.load_shift_joint_pair)
+    if cat.hold_joint_pair:
+        names |= set(cat.hold_joint_pair)
+    if cat.rep_joint_pair:
+        names |= set(cat.rep_joint_pair)
+    return names
+
+
+def _confidence_landmark_idxs(cat: CategoryConfig) -> tuple[int, ...]:
+    """카테고리가 실제로 보는 관절들의 랜드마크 인덱스 - 신뢰도(visibility) 계산 기준.
+
+    원래 스쿼트(하체) 랜드마크로 고정돼 있던 걸 카테고리별로 일반화한 것 - 상체
+    운동(pull/push 등)에서 하체가 프레임 밖으로 나가도 정작 보는 관절(팔꿈치 등)이
+    잘 보이면 신뢰도가 정상으로 잡히도록 하기 위함. (plus_exercise.md 튜닝 중 발견)
+    """
+    idxs: set[int] = set()
+    for name in _category_joint_names(cat):
+        idxs.update(JOINTS[name])
+    return tuple(sorted(idxs)) if idxs else _FALLBACK_CONFIDENCE_LANDMARK_IDXS
 
 
 class WindowAccumulator:
     def __init__(self, window_seconds: float = 5.0, exercise: str = "squat"):
         self.window_seconds = window_seconds
         self.category = get_category(exercise)
+        self._confidence_landmark_idxs = _confidence_landmark_idxs(self.category)
         self._frames: list[dict] = []
         self._window_start_s: float | None = None
         self._rep_count = 0
         self._rep_state = "up"  # "up" | "down"
         self._hold_seconds = 0.0  # mode="hold" 전용: 이 윈도우에서 자세 유지한 누적 초
         self._last_frame_t: float | None = None  # hold 누적용 - 직전 프레임 시각
+        self._last_vis: float | None = None  # 디버깅/튜닝 도구용 - 최근 프레임 신뢰도(vis)
+        self._rep_trough: float | None = None  # rep_rise_margin_deg 전용 - down 상태 진입 후 최저값
+        self._last_accepted_rep_value: float | None = None  # REP_MAX_ANGULAR_VELOCITY_DEG_PER_S 전용 - 트래킹 글리치 감지 기준점
+        self._last_accepted_rep_t: float | None = None  # 위 기준점의 타임스탬프(각속도 계산용)
 
     @property
     def rep_state(self) -> str:
         """디버깅/튜닝 도구용(spike_webcam.py): 지금 rep 판정 상태('up'|'down')."""
         return self._rep_state
+
+    @property
+    def last_vis(self) -> float | None:
+        """디버깅/튜닝 도구용(category_tuner.py): 최근 프레임의 신뢰도 게이트 평균 visibility.
+        REP_VIS_THRESHOLD 아래로 떨어지면 그 프레임은 rep/hold 판정에서 제외된다."""
+        return self._last_vis
 
     def add_frame(self, landmarks, timestamp_s: float) -> None:
         if self._window_start_s is None:
@@ -45,18 +95,19 @@ class WindowAccumulator:
 
         angles = compute_joint_angles(landmarks)
 
-        vis_values = [landmarks[idx].visibility or 0.0 for idx in CONFIDENCE_LANDMARK_IDXS]
+        vis_values = [landmarks[idx].visibility or 0.0 for idx in self._confidence_landmark_idxs]
         avg_vis = statistics.fmean(vis_values)
+        self._last_vis = avg_vis
 
         self._frames.append({"t": timestamp_s, "angles": angles, "vis": avg_vis})
         if avg_vis >= REP_VIS_THRESHOLD:
             if self.category.mode == "hold":
                 self._update_hold_seconds(angles, timestamp_s)
             else:
-                self._update_rep_count(angles)
+                self._update_rep_count(angles, timestamp_s)
         self._last_frame_t = timestamp_s
 
-    def _update_rep_count(self, angles: dict) -> None:
+    def _update_rep_count(self, angles: dict, timestamp_s: float) -> None:
         pair = self.category.rep_joint_pair
         if pair is None:
             return
@@ -70,13 +121,28 @@ class WindowAccumulator:
         else:
             value = (left + right) / 2
 
+        if self._last_accepted_rep_value is not None and self._last_accepted_rep_t is not None:
+            dt = timestamp_s - self._last_accepted_rep_t
+            if dt > 0:
+                angular_velocity = abs(value - self._last_accepted_rep_value) / dt
+                if angular_velocity > REP_MAX_ANGULAR_VELOCITY_DEG_PER_S:
+                    return  # 트래킹 글리치로 추정 - 이 프레임은 건너뛰고 기준점은 그대로 둔다
+        self._last_accepted_rep_value = value
+        self._last_accepted_rep_t = timestamp_s
+
         down = self.category.rep_down_threshold_deg
         up = self.category.rep_up_threshold_deg
+        margin = self.category.rep_rise_margin_deg
         if self._rep_state == "up" and value < down:
             self._rep_state = "down"
-        elif self._rep_state == "down" and value > up:
-            self._rep_state = "up"
-            self._rep_count += 1
+            self._rep_trough = value
+        elif self._rep_state == "down":
+            if margin is not None:
+                self._rep_trough = value if self._rep_trough is None else min(self._rep_trough, value)
+            risen_enough = margin is not None and value - self._rep_trough >= margin
+            if value > up or risen_enough:
+                self._rep_state = "up"
+                self._rep_count += 1
 
     def _update_hold_seconds(self, angles: dict, timestamp_s: float) -> None:
         pair = self.category.hold_joint_pair
@@ -106,12 +172,7 @@ class WindowAccumulator:
         cat = self.category
 
         # 이 카테고리가 실제로 쓰는 관절(L_/R_ 접두어 붙여서)만 모은다.
-        needed_bases = set(cat.lr_diff_joints) | set(cat.stability_joints)
-        needed_joints = {f"{side}_{base}" for base in needed_bases for side in ("L", "R")}
-        if cat.load_shift_joint_pair:
-            needed_joints |= set(cat.load_shift_joint_pair)
-        if cat.hold_joint_pair:
-            needed_joints |= set(cat.hold_joint_pair)
+        needed_joints = _category_joint_names(cat)
 
         def series(joint: str) -> list[float]:
             return [f["angles"][joint] for f in self._frames]
