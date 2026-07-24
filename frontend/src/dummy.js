@@ -68,67 +68,6 @@ export const exercise = {
   cameraHint: '무릎과 발목이 잘 보이도록 카메라를 옆(측면)에 두고, 전신이 화면에 들어오게 서주세요.',
 }
 
-/* 카메라 가드용 더미 Confidence (schemas.Confidence).
-   overall 0~1, below_threshold=true 면 피드백을 시작하지 않는다. */
-export const dummyConfidence = {
-  overall: 0.92,
-  interp_ratio: 0.0,
-  below_threshold: false,
-}
-
-/* 실시간 화면이 시간순으로 받는 더미 FeedbackResponse 목록.
-   각 항목은 schemas.FeedbackResponse 형식:
-     { session_id, window_end_s, messages[], guardrail_passed }
-   messages[] 는 schemas.FeedbackMessage:
-     { type: "observation"|"suggestion", text, area?, evidence[], note_tag? }
-   note_tag 는 suggestion 에만 붙는다 (기획.md 9번: 제안에만 참고 정보 태그). */
-export const dummyFeedbackStream = [
-  {
-    session_id: 's_demo',
-    window_end_s: 8,
-    guardrail_passed: true,
-    messages: [
-      {
-        type: 'observation',
-        area: '오른쪽 발목',
-        text: '오른쪽 발목에 부담이 쏠리는 패턴이 반복적으로 관찰돼요.',
-        evidence: ['load_shift', 'lr_angle_diff.ankle'],
-      },
-    ],
-  },
-  {
-    session_id: 's_demo',
-    window_end_s: 16,
-    guardrail_passed: true,
-    messages: [
-      {
-        type: 'observation',
-        area: '무릎',
-        text: '왼쪽 무릎이 안쪽으로 쏠리는 움직임이 늘어나는 편이에요.',
-        evidence: ['lr_imbalance', 'knee_valgus'],
-      },
-      {
-        type: 'suggestion',
-        text: '이런 경우 일반적으로 발 너비를 조금 넓히는 게 도움이 된다고 알려져 있어요. 본인에게 맞는지는 전문가와 상담을 권장해요.',
-        note_tag: '참고 정보입니다',
-      },
-    ],
-  },
-  {
-    session_id: 's_demo',
-    window_end_s: 24,
-    guardrail_passed: true,
-    messages: [
-      {
-        type: 'observation',
-        area: '오른쪽 발목',
-        text: '후반부로 갈수록 흔들림이 조금씩 커지는 패턴이 보여요.',
-        evidence: ['instability', 'late_fatigue'],
-      },
-    ],
-  },
-]
-
 /* ── 기록 묶음 헬퍼 ────────────────────────────────────────────────────
    세션 데이터는 더 이상 고정 mock 이 아니라, 실제 운동 종료 시 SessionContext 에
    쌓인다(localStorage 영속). 한 세션의 형식:

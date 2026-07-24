@@ -52,9 +52,11 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="부상 이력 기반 운동 피드백 AI Agent", lifespan=lifespan)
 
 # React 개발 서버(Vite 기본 포트 5173)에서 호출 허용
+# 같은 네트워크의 다른 기기(폰 등)에서 IP로 접속하는 경우, 그리고
+# cloudflared 터널(https://xxxx.trycloudflare.com, 매번 랜덤 주소)까지 포함해 허용.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1|\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):5173|https://[a-z0-9-]+\.trycloudflare\.com",
     allow_methods=["*"],
     allow_headers=["*"],
 )
