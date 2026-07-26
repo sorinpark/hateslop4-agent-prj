@@ -114,12 +114,42 @@ class RepositoryTestCase(unittest.TestCase):
 
         self.assertIsNotNone(row)
         self.assertEqual(row["rep_count"], self.feature_summary.window.rep_count)
+        self.assertIsNone(row["hold_seconds"])
         self.assertEqual(row["confidence_overall"], self.feature_summary.confidence.overall)
         self.assertEqual(row["confidence_below_threshold"], 0)
 
         import json
 
         self.assertEqual(json.loads(row["features"]), self.feature_summary.features)
+
+    def test_hold_mode_session_sums_hold_seconds_not_rep_count(self):
+        """mode="hold" 카테고리(플랭크/브릿지 등)는 rep_count가 항상 0이고
+        hold_seconds로 진행 상황을 잰다 - 이 값이 세션 목록 조회까지 이어지는지 확인."""
+        repository.save_profile(self.profile, self.db_path)
+        repository.save_session_start(
+            self.session_id, self.profile.user_id, "elbow-plank", self.db_path
+        )
+        repository.save_session_end(self.session_id, self.db_path)
+
+        hold_window = FeatureSummary(
+            session_id=self.session_id,
+            exercise="elbow-plank",
+            window=Window(start_s=0.0, end_s=5.0, rep_count=0, hold_seconds=4.2),
+            features={},
+            confidence=Confidence(overall=0.9, interp_ratio=0.0, below_threshold=False),
+        )
+        repository.save_feature_window(hold_window, self.db_path)
+        second_window = hold_window.model_copy(
+            update={"window": Window(start_s=5.0, end_s=10.0, rep_count=0, hold_seconds=3.1)}
+        )
+        repository.save_feature_window(second_window, self.db_path)
+
+        sessions = repository.get_sessions_by_date_range(
+            self.profile.user_id, "2000-01-01", "2100-01-01", self.db_path
+        )
+        row = next(s for s in sessions if s["session_id"] == self.session_id)
+        self.assertEqual(row["rep_count"], 0)
+        self.assertAlmostEqual(row["hold_seconds"], 7.3)
 
     def test_save_and_get_feedback_by_session(self):
         repository.save_session_start(

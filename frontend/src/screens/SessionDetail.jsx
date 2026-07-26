@@ -88,9 +88,13 @@ export default function SessionDetail() {
                   </div>
                   <div className="session-meta__item">
                     <div className="session-meta__value">
-                      {session.rep_count}
+                      {session.hold_seconds > 0
+                        ? `${Math.round(session.hold_seconds)}초`
+                        : session.rep_count}
                     </div>
-                    <div className="session-meta__label">횟수</div>
+                    <div className="session-meta__label">
+                      {session.hold_seconds > 0 ? '유지 시간' : '횟수'}
+                    </div>
                   </div>
                   <div className="session-meta__item">
                     <div className="session-meta__value">

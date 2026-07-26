@@ -51,6 +51,9 @@ export default function SessionReport() {
 
   const durationSec = session?.duration_s ?? 0
   const repCount = session?.rep_count ?? 0
+  const holdSeconds = session?.hold_seconds ?? 0
+  // hold(유지형) 카테고리는 rep_count가 항상 0이라 hold_seconds로 대신 보여준다.
+  const isHoldMode = holdSeconds > 0
   const feedbackCount = aiReport?.items.length ?? 0
   const focusNames = profile.focus_areas.map((fa) => fa.area).join(', ')
 
@@ -94,8 +97,12 @@ export default function SessionReport() {
             <div className="session-meta__label">운동 시간</div>
           </div>
           <div className="session-meta__item">
-            <div className="session-meta__value">{repCount}</div>
-            <div className="session-meta__label">횟수</div>
+            <div className="session-meta__value">
+              {isHoldMode ? `${Math.round(holdSeconds)}초` : repCount}
+            </div>
+            <div className="session-meta__label">
+              {isHoldMode ? '유지 시간' : '횟수'}
+            </div>
           </div>
           <div className="session-meta__item">
             <div className="session-meta__value">{feedbackCount}</div>

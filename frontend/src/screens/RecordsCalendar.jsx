@@ -179,7 +179,8 @@ export default function RecordsCalendar() {
               <span className="rec-row__date">
                 {fmtYYMMDD(s.date)}-{fmtTime(s.started_at)} ·{' '}
                 {getExerciseBySlug(s.exercise)?.name ?? s.exercise} ·{' '}
-                {fmtDuration(s.duration_s)} · {s.rep_count}회
+                {fmtDuration(s.duration_s)} ·{' '}
+                {s.hold_seconds > 0 ? `${Math.round(s.hold_seconds)}초` : `${s.rep_count}회`}
               </span>
               <span className="rec-row__chev">›</span>
             </button>

@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS feature_windows (
     window_start_s REAL NOT NULL,
     window_end_s REAL NOT NULL,
     rep_count INTEGER NOT NULL,
+    hold_seconds REAL,
     features TEXT NOT NULL,
     confidence_overall REAL NOT NULL,
     confidence_below_threshold INTEGER NOT NULL,

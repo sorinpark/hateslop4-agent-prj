@@ -48,6 +48,16 @@ def init_db(db_path: str | Path = DB_PATH) -> None:
     with _connect(db_path) as conn:
         for ddl in ALL_TABLES:
             conn.execute(ddl)
+        _migrate(conn)
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """models.py의 DDL에 없던 컬럼이 기존 DB 파일에 이미 있는 테이블에 새로 추가된
+    경우를 위한 최소 마이그레이션. CREATE TABLE IF NOT EXISTS는 테이블이 이미
+    있으면 아무것도 안 하므로, 이런 컬럼 추가는 여기서 따로 처리해야 한다."""
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(feature_windows)")}
+    if "hold_seconds" not in columns:
+        conn.execute("ALTER TABLE feature_windows ADD COLUMN hold_seconds REAL")
 
 
 def save_profile(profile: ObservationProfile, db_path: str | Path = DB_PATH) -> None:
@@ -137,15 +147,16 @@ def save_feature_window(summary: FeatureSummary, db_path: str | Path = DB_PATH) 
         conn.execute(
             """
             INSERT INTO feature_windows
-                (session_id, window_start_s, window_end_s, rep_count, features,
-                 confidence_overall, confidence_below_threshold)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                (session_id, window_start_s, window_end_s, rep_count, hold_seconds,
+                 features, confidence_overall, confidence_below_threshold)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 summary.session_id,
                 summary.window.start_s,
                 summary.window.end_s,
                 summary.window.rep_count,
+                summary.window.hold_seconds,
                 json.dumps(summary.features, ensure_ascii=False),
                 summary.confidence.overall,
                 int(summary.confidence.below_threshold),
@@ -193,7 +204,8 @@ def get_sessions_by_date_range(
                 sessions.date,
                 sessions.started_at,
                 sessions.ended_at,
-                COALESCE(SUM(feature_windows.rep_count), 0) AS rep_count
+                COALESCE(SUM(feature_windows.rep_count), 0) AS rep_count,
+                COALESCE(SUM(feature_windows.hold_seconds), 0) AS hold_seconds
             FROM sessions
             LEFT JOIN feature_windows
                 ON sessions.session_id = feature_windows.session_id

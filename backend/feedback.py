@@ -71,9 +71,14 @@ def _build_prompt(profile: ObservationProfile, summary: FeatureSummary) -> str:
 
     lines.append("[방금 관찰된 동작 특징]")
     lines.append(f"- 운동: {summary.exercise}")
+    # hold_seconds가 있으면(mode="hold" 카테고리 - 플랭크/브릿지 등 유지형) rep_count는
+    # 항상 0이라 의미가 없으므로 유지 시간으로 대신 알려준다.
+    if summary.window.hold_seconds is not None:
+        progress = f"유지 {summary.window.hold_seconds:.1f}초"
+    else:
+        progress = f"반복 {summary.window.rep_count}회"
     lines.append(
-        f"- 구간: {summary.window.start_s:.1f}s ~ {summary.window.end_s:.1f}s "
-        f"(반복 {summary.window.rep_count}회)"
+        f"- 구간: {summary.window.start_s:.1f}s ~ {summary.window.end_s:.1f}s ({progress})"
     )
     lines.append(f"- features: {summary.features}")
 
