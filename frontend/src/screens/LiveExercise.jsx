@@ -12,6 +12,9 @@ const POPUP_DURATION_MS = 5000 // 팝업 노출 시간(4~5초 범위 중 5초로
 // rep 운동은 "3회마다" 띄우는데, hold 운동은 rep이 안 세이므로 유지 시간 기준으로 띄운다.
 const HOLD_POPUP_INTERVAL_S = 15
 
+const MIN_SEND_INTERVAL_MS = 80 // 약 12fps
+const MAX_BUFFERED_BYTES = 200 * 1024 // 송신 버퍼가 이보다 밀리면 프레임 드롭
+
 // 두 피드백 메시지가 "같은 내용"인지: area 일치 + evidence 키 대분류(prefix)가 겹치면 같은 내용으로 본다.
 // (LLM이 매번 다른 문장을 생성해서 텍스트 완전일치로는 못 묶으므로 구조화된 필드로 판정)
 function isSimilarFeedback(a, b) {
@@ -82,8 +85,7 @@ export default function LiveExercise() {
   // 셋 중 하나라도 켜지면 화면을 얼리고(카메라/인식 정지) 서버 전송도 멈춘다.
   const cameraPaused = paused || showEnd || showLog
 
-  const { videoRef, canvasRef, landmarks, confidence, status, cameraStream } =
-    usePoseCamera(cameraPaused)
+  const { videoRef, canvasRef, landmarks, cameraStream } = usePoseCamera(cameraPaused)
   const bgVideoRef = useRef(null)
   // 지금까지 도착한 FeedbackMessage 들 (최신이 위로)
   const [messages, setMessages] = useState([])
@@ -109,10 +111,8 @@ export default function LiveExercise() {
   const [wsError, setWsError] = useState(null)
   const [endingReport, setEndingReport] = useState(false)
 
-  // ── 개발용 튜닝 오버레이 (plus_exercise.md 2단계 실측용) ──────────────
-  // 서버가 매 프레임 보내주는 판정 근거(각도/임계값/상태). PC의 category_tuner.py를
-  // 폰에서 대신하기 위한 것으로, 임계값 실측이 끝나면 이 상태와 오버레이를 제거한다.
-  const [tuning, setTuning] = useState(null)
+  // 이 운동이 hold(등척성)인지 rep인지 — 서버가 세션 내내 같은 값을 보내준다.
+  const [mode, setMode] = useState(null)
   // hold 모드(등척성)의 누적 유지 시간 — 윈도우마다 서버가 보내주는 값을 합산
   const holdTotalRef = useRef(0)
   const [holdTotal, setHoldTotal] = useState(0)
@@ -219,9 +219,9 @@ export default function LiveExercise() {
         if (cancelled) return
         const data = JSON.parse(event.data)
 
-        // 개발용 튜닝 정보 — ack 프레임에도 실려 오므로 window_ready 판정보다 먼저 본다
-        if (data.tuning && Object.keys(data.tuning).length > 0) {
-          setTuning(data.tuning)
+        // ack 프레임에도 실려 오므로 window_ready 판정보다 먼저 본다
+        if (typeof data.mode === 'string') {
+          setMode(data.mode)
         }
         if (typeof data.hold_seconds === 'number' && data.hold_seconds > 0) {
           holdTotalRef.current += data.hold_seconds
@@ -298,10 +298,7 @@ export default function LiveExercise() {
   // 단, 30fps 전량을 터널로 보내면(초당 30 x 33랜드마크 JSON) 트래픽이 커서
   // 연결이 끊길 수 있다. 서버는 5초 윈도우로 모으니 초당 ~12프레임이면 충분하다.
   // (1) 최소 전송 간격으로 스로틀 + (2) WS 송신 버퍼가 밀리면 그 프레임은 건너뛴다.
-  const sentFramesRef = useRef(0)
   const lastSentAtRef = useRef(0)
-  const MIN_SEND_INTERVAL_MS = 80 // 약 12fps
-  const MAX_BUFFERED_BYTES = 200 * 1024 // 송신 버퍼가 이보다 밀리면 프레임 드롭
   useEffect(() => {
     // 일시정지/종료확인/상세로그 중 어느 것이든 켜져 있으면 전송을 막는다 —
     // 예전엔 paused/showEnd만 봐서, 상세로그를 보는 동안엔 계속 전송되고 있었다.
@@ -321,19 +318,7 @@ export default function LiveExercise() {
           timestamp_s: now / 1000,
         }),
       )
-      sentFramesRef.current += 1
-      // 예전엔 화면에 보이는 진단 오버레이였던 정보 — 마무리 단계에서 오버레이는 지우고
-      // 디버깅용으로 console.log만 남긴다(10프레임마다, 과도한 로그 방지).
-      if (sentFramesRef.current % 10 === 0) {
-        console.log(
-          `[live] WS:${wsStatus} 전송:${sentFramesRef.current} 관절:${landmarks ? 'O' : 'X'} ` +
-            `신뢰도:${confidence == null ? '-' : Math.round(confidence * 100) + '%'} 카메라:${status}`,
-        )
-      }
     }
-    // confidence/status는 로그 출력에만 쓰고, 그것 때문에 이 effect가 다시 돌 필요는
-    // 없다(전송 타이밍은 landmarks 갱신에만 반응하면 충분) — 그래서 deps에서 뺀다.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [landmarks, cameraPaused, wsStatus])
 
   const mmss = `${String(Math.floor(elapsed / 60)).padStart(2, '0')}:${String(
@@ -393,9 +378,7 @@ export default function LiveExercise() {
         <span className="live__timer">{mmss}</span>
         <span className="live__reps">
           {exercise.name} ·{' '}
-          {tuning?.mode === 'hold'
-            ? `유지 ${Math.round(holdTotal)}초`
-            : `${totalReps}회`}
+          {mode === 'hold' ? `유지 ${Math.round(holdTotal)}초` : `${totalReps}회`}
         </span>
       </div>
 
@@ -403,36 +386,6 @@ export default function LiveExercise() {
         {/* showEnd(종료 확인 팝업)도 일시정지와 동일한 배지로 보여준다 */}
         {(paused || showEnd) && <span className="live__paused-badge">일시정지됨</span>}
 
-        {/* 개발용 튜닝 오버레이 (plus_exercise.md 2단계 실측용).
-            PC의 category_tuner.py를 폰에서 대신한다 — 지금 보는 관절의 실시간
-            각도와 임계값, 판정 상태(IN-RANGE/OUT, 또는 down/up)를 표시.
-            임계값 실측이 끝나면 이 블록과 관련 상태를 제거할 것. */}
-        {tuning && (
-          <div className={'tune' + (tuning.in_range ? ' tune--ok' : '')}>
-            <div className="tune__row">
-              <span className="tune__joint">{tuning.joint}</span>
-              <span className="tune__angle">{tuning.angle}°</span>
-            </div>
-            {tuning.mode === 'hold' ? (
-              <>
-                <div className="tune__range">
-                  범위 {tuning.min}~{tuning.max}°
-                </div>
-                <div className="tune__state">
-                  {tuning.in_range ? 'IN-RANGE ✓' : 'OUT ✕'}
-                </div>
-                <div className="tune__total">유지 {holdTotal.toFixed(1)}초</div>
-              </>
-            ) : (
-              <>
-                <div className="tune__range">
-                  down &lt;{tuning.down}° / up &gt;{tuning.up}°
-                </div>
-                <div className="tune__total">rep {totalRepsRef.current}회</div>
-              </>
-            )}
-          </div>
-        )}
         <video
           ref={bgVideoRef}
           className="camera-video-bg"

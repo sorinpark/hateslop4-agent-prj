@@ -1,19 +1,28 @@
-"""SQLite 저장/조회 함수.
+"""Postgres 저장/조회 함수.
 
 schemas.py의 Pydantic 모델(ObservationProfile, FeatureSummary, FeedbackResponse)을
 그대로 저장하고 복원한다. "위험/진단" 관련 판단은 이 레이어의 책임이 아니다 -
 측정값/텍스트를 그대로 저장하고 돌려줄 뿐이다.
 """
 import json
-import sqlite3
+import os
 import sys
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
+import psycopg
+from dotenv import load_dotenv
+from psycopg.rows import dict_row
+
 _BACKEND_DIR = Path(__file__).resolve().parent.parent
 if str(_BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(_BACKEND_DIR))
+
+# backend/.env를 우선으로 하고, 없으면 프로젝트 루트 .env로 폴백 (llm.py와 동일한 규칙)
+_BACKEND_ENV = _BACKEND_DIR / ".env"
+_ROOT_ENV = _BACKEND_DIR.parent / ".env"
+load_dotenv(_BACKEND_ENV if _BACKEND_ENV.exists() else _ROOT_ENV)
 
 from schemas import (  # noqa: E402
     FeatureSummary,
@@ -24,18 +33,20 @@ from schemas import (  # noqa: E402
 
 from db.models import ALL_TABLES  # noqa: E402
 
-DB_PATH = _BACKEND_DIR / "data" / "app.db"
+DATABASE_URL = os.environ.get("DATABASE_URL")
 
 
 @contextmanager
-def _connect(db_path: str | Path = DB_PATH):
-    if db_path == ":memory:":
-        conn = sqlite3.connect(":memory:")
-    else:
-        db_path = Path(db_path)
-        db_path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+def _connect(conninfo: str | None = None):
+    conninfo = conninfo or DATABASE_URL
+    if not conninfo:
+        raise RuntimeError(
+            "DATABASE_URL이 설정되지 않았어요. backend/.env에 Postgres 연결 문자열을 채워주세요."
+        )
+    # prepare_threshold=None: Supabase의 Transaction pooler(pgbouncer)는 커넥션이
+    # 트랜잭션마다 바뀔 수 있어 서버사이드 prepared statement를 못 씀 - psycopg의
+    # 자동 prepare를 꺼서 pooler/direct 연결 둘 다에서 안전하게 동작하도록 한다.
+    conn = psycopg.connect(conninfo, row_factory=dict_row, prepare_threshold=None)
     try:
         yield conn
         conn.commit()
@@ -43,34 +54,32 @@ def _connect(db_path: str | Path = DB_PATH):
         conn.close()
 
 
-def init_db(db_path: str | Path = DB_PATH) -> None:
+def init_db(conninfo: str | None = None) -> None:
     """앱 시작 시 1회 호출: 테이블이 없으면 생성한다."""
-    with _connect(db_path) as conn:
+    with _connect(conninfo) as conn:
         for ddl in ALL_TABLES:
             conn.execute(ddl)
         _migrate(conn)
 
 
-def _migrate(conn: sqlite3.Connection) -> None:
-    """models.py의 DDL에 없던 컬럼이 기존 DB 파일에 이미 있는 테이블에 새로 추가된
-    경우를 위한 최소 마이그레이션. CREATE TABLE IF NOT EXISTS는 테이블이 이미
-    있으면 아무것도 안 하므로, 이런 컬럼 추가는 여기서 따로 처리해야 한다."""
-    columns = {row["name"] for row in conn.execute("PRAGMA table_info(feature_windows)")}
-    if "hold_seconds" not in columns:
-        conn.execute("ALTER TABLE feature_windows ADD COLUMN hold_seconds REAL")
+def _migrate(conn: psycopg.Connection) -> None:
+    """models.py의 DDL에 없던 컬럼이 기존 테이블에 새로 추가된 경우를 위한 최소
+    마이그레이션. CREATE TABLE IF NOT EXISTS는 테이블이 이미 있으면 아무것도 안
+    하므로, 이런 컬럼 추가는 여기서 따로 처리해야 한다."""
+    conn.execute("ALTER TABLE feature_windows ADD COLUMN IF NOT EXISTS hold_seconds REAL")
 
 
-def save_profile(profile: ObservationProfile, db_path: str | Path = DB_PATH) -> None:
-    with _connect(db_path) as conn:
+def save_profile(profile: ObservationProfile, conninfo: str | None = None) -> None:
+    with _connect(conninfo) as conn:
         conn.execute(
             """
             INSERT INTO profiles (user_id, injuries, focus_areas, watch_patterns, disclaimer, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(user_id) DO UPDATE SET
-                injuries = excluded.injuries,
-                focus_areas = excluded.focus_areas,
-                watch_patterns = excluded.watch_patterns,
-                disclaimer = excluded.disclaimer
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON CONFLICT (user_id) DO UPDATE SET
+                injuries = EXCLUDED.injuries,
+                focus_areas = EXCLUDED.focus_areas,
+                watch_patterns = EXCLUDED.watch_patterns,
+                disclaimer = EXCLUDED.disclaimer
             """,
             (
                 profile.user_id,
@@ -83,13 +92,13 @@ def save_profile(profile: ObservationProfile, db_path: str | Path = DB_PATH) -> 
         )
 
 
-def get_profile(user_id: str, db_path: str | Path = DB_PATH) -> ObservationProfile | None:
-    with _connect(db_path) as conn:
+def get_profile(user_id: str, conninfo: str | None = None) -> ObservationProfile | None:
+    with _connect(conninfo) as conn:
         row = conn.execute(
             """
             SELECT user_id, injuries, focus_areas, watch_patterns, disclaimer
             FROM profiles
-            WHERE user_id = ?
+            WHERE user_id = %s
             """,
             (user_id,),
         ).fetchone()
@@ -105,51 +114,51 @@ def get_profile(user_id: str, db_path: str | Path = DB_PATH) -> ObservationProfi
 
 
 def save_session_start(
-    session_id: str, user_id: str, exercise: str, db_path: str | Path = DB_PATH
+    session_id: str, user_id: str, exercise: str, conninfo: str | None = None
 ) -> None:
     started_at = datetime.now(timezone.utc).isoformat()
     date = started_at[:10]
-    with _connect(db_path) as conn:
+    with _connect(conninfo) as conn:
         conn.execute(
             """
             INSERT INTO sessions (session_id, user_id, exercise, date, started_at, ended_at)
-            VALUES (?, ?, ?, ?, ?, NULL)
+            VALUES (%s, %s, %s, %s, %s, NULL)
             """,
             (session_id, user_id, exercise, date, started_at),
         )
 
 
-def save_session_end(session_id: str, db_path: str | Path = DB_PATH) -> None:
+def save_session_end(session_id: str, conninfo: str | None = None) -> None:
     ended_at = datetime.now(timezone.utc).isoformat()
-    with _connect(db_path) as conn:
+    with _connect(conninfo) as conn:
         conn.execute(
-            "UPDATE sessions SET ended_at = ? WHERE session_id = ?",
+            "UPDATE sessions SET ended_at = %s WHERE session_id = %s",
             (ended_at, session_id),
         )
 
 
-def get_session(session_id: str, db_path: str | Path = DB_PATH) -> dict | None:
+def get_session(session_id: str, conninfo: str | None = None) -> dict | None:
     """세션 시작/종료 엔드포인트용: session_id 존재 여부 확인 및 타임스탬프 조회."""
-    with _connect(db_path) as conn:
+    with _connect(conninfo) as conn:
         row = conn.execute(
             """
             SELECT session_id, user_id, exercise, date, started_at, ended_at
             FROM sessions
-            WHERE session_id = ?
+            WHERE session_id = %s
             """,
             (session_id,),
         ).fetchone()
     return dict(row) if row is not None else None
 
 
-def save_feature_window(summary: FeatureSummary, db_path: str | Path = DB_PATH) -> None:
-    with _connect(db_path) as conn:
+def save_feature_window(summary: FeatureSummary, conninfo: str | None = None) -> None:
+    with _connect(conninfo) as conn:
         conn.execute(
             """
             INSERT INTO feature_windows
                 (session_id, window_start_s, window_end_s, rep_count, hold_seconds,
                  features, confidence_overall, confidence_below_threshold)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 summary.session_id,
@@ -164,37 +173,38 @@ def save_feature_window(summary: FeatureSummary, db_path: str | Path = DB_PATH) 
         )
 
 
-def save_feedback(response: FeedbackResponse, db_path: str | Path = DB_PATH) -> None:
+def save_feedback(response: FeedbackResponse, conninfo: str | None = None) -> None:
     if not response.messages:
         return
-    with _connect(db_path) as conn:
-        conn.executemany(
-            """
-            INSERT INTO feedback_messages
-                (session_id, window_end_s, type, area, text, evidence, note_tag, guardrail_passed)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            [
-                (
-                    response.session_id,
-                    response.window_end_s,
-                    m.type,
-                    m.area,
-                    m.text,
-                    json.dumps(m.evidence, ensure_ascii=False),
-                    m.note_tag,
-                    int(response.guardrail_passed),
-                )
-                for m in response.messages
-            ],
-        )
+    with _connect(conninfo) as conn:
+        with conn.cursor() as cur:
+            cur.executemany(
+                """
+                INSERT INTO feedback_messages
+                    (session_id, window_end_s, type, area, text, evidence, note_tag, guardrail_passed)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                [
+                    (
+                        response.session_id,
+                        response.window_end_s,
+                        m.type,
+                        m.area,
+                        m.text,
+                        json.dumps(m.evidence, ensure_ascii=False),
+                        m.note_tag,
+                        int(response.guardrail_passed),
+                    )
+                    for m in response.messages
+                ],
+            )
 
 
 def get_sessions_by_date_range(
-    user_id: str, start_date: str, end_date: str, db_path: str | Path = DB_PATH
+    user_id: str, start_date: str, end_date: str, conninfo: str | None = None
 ) -> list[dict]:
     """캘린더 마커용: [start_date, end_date] 범위(YYYY-MM-DD, 양끝 포함)의 세션 목록."""
-    with _connect(db_path) as conn:
+    with _connect(conninfo) as conn:
         rows = conn.execute(
             """
             SELECT
@@ -209,7 +219,7 @@ def get_sessions_by_date_range(
             FROM sessions
             LEFT JOIN feature_windows
                 ON sessions.session_id = feature_windows.session_id
-            WHERE sessions.user_id = ? AND sessions.date BETWEEN ? AND ?
+            WHERE sessions.user_id = %s AND sessions.date BETWEEN %s AND %s
             GROUP BY sessions.session_id
             ORDER BY sessions.date, sessions.started_at
             """,
@@ -228,15 +238,15 @@ def get_sessions_by_date_range(
 
 
 def get_feedback_by_session(
-    session_id: str, db_path: str | Path = DB_PATH
+    session_id: str, conninfo: str | None = None
 ) -> list[FeedbackMessage]:
     """날짜별 상세 화면용: 세션에 쌓인 피드백 메시지를 시간순으로 복원."""
-    with _connect(db_path) as conn:
+    with _connect(conninfo) as conn:
         rows = conn.execute(
             """
             SELECT type, area, text, evidence, note_tag
             FROM feedback_messages
-            WHERE session_id = ?
+            WHERE session_id = %s
             ORDER BY id
             """,
             (session_id,),

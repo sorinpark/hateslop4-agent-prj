@@ -3,8 +3,6 @@ uvicorn[standard]
 pydantic
 python-dotenv
 google-genai
-mediapipe
-opencv-python
-numpy
+psycopg[binary]
 pytest
 httpx
