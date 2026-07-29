@@ -6,6 +6,7 @@ these function boundaries are the natural MCP migration points.
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any
 
@@ -149,14 +150,46 @@ def get_recent_feedback_context(
     than breaking the real-time feedback loop.
     """
     try:
-        return db_repo.get_recent_feedback_for_user(
-            user_id=profile.user_id,
-            exercise=summary.exercise,
-            exclude_session_id=summary.session_id,
-            limit=limit,
-        )
+        with db_repo._connect() as conn:  # Tool boundary; kept here to avoid widening db API yet.
+            rows = conn.execute(
+                """
+                SELECT
+                    sessions.date,
+                    feedback_messages.type,
+                    feedback_messages.area,
+                    feedback_messages.text,
+                    feedback_messages.evidence,
+                    feedback_messages.note_tag
+                FROM feedback_messages
+                JOIN sessions ON sessions.session_id = feedback_messages.session_id
+                WHERE sessions.user_id = %s
+                  AND sessions.exercise = %s
+                  AND sessions.session_id <> %s
+                ORDER BY sessions.started_at DESC, feedback_messages.id DESC
+                LIMIT %s
+                """,
+                (profile.user_id, summary.exercise, summary.session_id, limit),
+            ).fetchall()
     except Exception:
         return []
+
+    history = []
+    for row in rows:
+        try:
+            evidence = json.loads(row["evidence"])
+        except Exception:
+            evidence = []
+        history.append(
+            {
+                "date": row["date"],
+                "type": row["type"],
+                "area": row["area"],
+                "text": row["text"],
+                "evidence": evidence,
+                "note_tag": row["note_tag"],
+            }
+        )
+    return history
 
 
 def allowed_evidence_keys(summary: FeatureSummary, guidance: list[dict[str, str]]) -> set[str]:
