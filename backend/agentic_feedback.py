@@ -61,7 +61,7 @@ SYSTEM_INSTRUCTION = (
     "가이드 근거를 함께 보고 화면에 짧게 보여줄 참고 정보형 피드백을 만드는 것이다.\n"
     "반드시 지킬 규칙:\n"
     "1) '위험', '진단', '손상' 같은 의료적 단정 표현을 쓰지 않는다.\n"
-    "2) '~하세요', '~하십시오', '해야 합니다' 같은 명령형 표현을 쓰지 않는다.\n"
+    "2) '~하세요', '~십시오', '해야 합니다' 같은 명령형 표현을 쓰지 않는다.\n"
     "3) observation은 입력 features 또는 history에서 관찰된 내용만 쓴다.\n"
     "4) suggestion은 guidance 문서 근거가 있을 때만 만들고 note_tag를 '참고 정보입니다'로 둔다.\n"
     "5) evidence에는 제공된 feature key 또는 guidance id만 넣는다. 없는 근거를 만들지 않는다.\n"
@@ -95,6 +95,7 @@ def create_agentic_feedback(
         window_end_s=summary.window.end_s,
         messages=final_state.get("messages", []),
         guardrail_passed=final_state.get("guardrail_passed", True),
+        agent_trace=final_state.get("trace", []),
     )
 
 
@@ -139,7 +140,8 @@ def _retrieve_context(state: AgentState) -> AgentState:
     profile = state["profile"]
     summary = state["summary"]
     history = get_recent_feedback_context(profile, summary)
-    return {**state, "history": history, "trace": _append_trace(state, "tool:history")}
+    trace_item = f"tool:history({len(history)})"
+    return {**state, "history": history, "trace": _append_trace(state, trace_item)}
 
 
 def _route(state: AgentState) -> AgentState:
@@ -164,7 +166,8 @@ def _retrieve_guidance(state: AgentState) -> AgentState:
     profile = state["profile"]
     summary = state["summary"]
     guidance = retrieve_exercise_guidance(profile, summary)
-    return {**state, "guidance": guidance, "trace": _append_trace(state, "tool:guidance_rag")}
+    trace_item = f"tool:guidance_rag({len(guidance)})"
+    return {**state, "guidance": guidance, "trace": _append_trace(state, trace_item)}
 
 
 def _generate(state: AgentState) -> AgentState:
@@ -190,7 +193,7 @@ def _generate(state: AgentState) -> AgentState:
         )
         for message in draft.messages[:3]
     ]
-    return {**state, "messages": messages, "trace": _append_trace(state, "llm:generate")}
+    return {**state, "messages": messages, "trace": _append_trace(state, f"llm:generate({len(messages)})")}
 
 
 def _verify(state: AgentState) -> AgentState:
@@ -207,11 +210,12 @@ def _verify(state: AgentState) -> AgentState:
         verified.append(message.model_copy(update={"evidence": evidence}))
 
     guardrail_passed = _check_guardrail(verified)
+    trace_item = f"verify:evidence_guardrail({len(verified)})"
     return {
         **state,
         "messages": verified if guardrail_passed else [],
         "guardrail_passed": guardrail_passed,
-        "trace": _append_trace(state, "verify:evidence_guardrail"),
+        "trace": _append_trace(state, trace_item),
     }
 
 
