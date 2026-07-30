@@ -31,3 +31,67 @@ body {
 a {
   color: var(--accent);
 }
+
+.fb__evidence {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fb__evidence-label {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.fb__evidence-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.fb__evidence-chip {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--accent-border-soft);
+  border-radius: 999px;
+  padding: 4px 8px;
+  background: var(--bg-card-soft);
+  color: var(--accent-soft-text);
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+.next-guidance {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.next-guidance__item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  background: var(--accent-soft-bg);
+  border: 1px solid var(--accent-border-soft);
+  border-radius: 12px;
+  padding: 12px 14px;
+  color: var(--accent-soft-text-strong);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.next-guidance__index {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-on);
+  font-size: 12px;
+  font-weight: 700;
+}
