@@ -114,6 +114,7 @@ def create_baseline_feedback(
         window_end_s=summary.window.end_s,
         messages=messages,
         guardrail_passed=_check_guardrail(messages),
+        agent_trace=["baseline:single_llm_call"],
     )
 
 
@@ -194,6 +195,7 @@ if __name__ == "__main__":
     try:
         result = create_feedback(_profile, _summary)
         print(f"[feedback] guardrail_passed: {result.guardrail_passed}")
+        print(f"[feedback] trace: {result.agent_trace}")
         for msg in result.messages:
             print(f"[feedback] ({msg.type}) {msg.area or '-'}: {msg.text}")
             print(f"           evidence={msg.evidence} note_tag={msg.note_tag}")
