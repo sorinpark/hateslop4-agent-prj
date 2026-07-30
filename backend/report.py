@@ -79,13 +79,34 @@ def create_report_summary(
     items = [
         ReportSummaryItem(text=i.text, count=max(1, i.count)) for i in draft.items
     ]
+    next_guidance = draft.next_guidance[:3] or _fallback_next_guidance(messages, items)
 
     return ReportSummary(
         session_id=session_id,
         summary=draft.summary,
         items=items,
-        next_guidance=draft.next_guidance[:3],
+        next_guidance=next_guidance,
     )
+
+
+def _fallback_next_guidance(
+    messages: list[FeedbackMessage], items: list[ReportSummaryItem]
+) -> list[str]:
+    """Ensure the report screen can always show an agent-like next step.
+
+    Gemini may legally return an empty next_guidance list. For the UX, a report
+    with observed feedback should still expose a concrete next-session plan.
+    """
+    if items:
+        top_item = max(items, key=lambda item: item.count)
+        return [f"다음 세션 초반에는 '{top_item.text}' 흐름이 다시 보이는지 먼저 관찰해보면 좋을 것 같아요."]
+
+    areas = [message.area for message in messages if message.area]
+    if areas:
+        area = areas[0]
+        return [f"다음 세션에서는 {area} 주변 움직임이 안정적으로 유지되는지 먼저 관찰해보면 좋을 것 같아요."]
+
+    return ["다음 세션에서는 초반과 후반의 움직임 차이가 있는지 먼저 관찰해보면 좋을 것 같아요."]
 
 
 if __name__ == "__main__":
