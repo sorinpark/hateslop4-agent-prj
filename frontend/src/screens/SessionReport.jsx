@@ -9,7 +9,7 @@ import { useProfileOrFallback } from '../state/ProfileContext.jsx'
    2) 기록 탭 캘린더에서 지난 세션 탭( from: 'records' ) — { session } 전달
    진입 경로에 따라 하단 버튼 구성이 다르다(아래 footer 참고).
    본문은 계약④ ReportSummary — 세션 중 쌓인 피드백을 AI가 1회 정리한
-   총평 + 빈도별 항목(GET /sessions/{id}/report)으로 보여준다. */
+   총평 + 빈도별 항목 + 다음 세션 가이드(GET /sessions/{id}/report)로 보여준다. */
 export default function SessionReport() {
   const navigate = useNavigate()
   const location = useLocation()
@@ -52,12 +52,11 @@ export default function SessionReport() {
   const durationSec = session?.duration_s ?? 0
   const repCount = session?.rep_count ?? 0
   const holdSeconds = session?.hold_seconds ?? 0
-  // hold(유지형) 카테고리는 rep_count가 항상 0이라 hold_seconds로 대신 보여준다.
   const isHoldMode = holdSeconds > 0
   const feedbackCount = aiReport?.items.length ?? 0
+  const nextGuidance = aiReport?.next_guidance ?? []
   const focusNames = profile.focus_areas.map((fa) => fa.area).join(', ')
 
-  // 새로고침 등으로 세션 정보 없이 진입한 경우 안내
   if (!session) {
     return (
       <div className="screen">
@@ -90,7 +89,6 @@ export default function SessionReport() {
         </h2>
         <p className="subtitle">관찰 기준: {focusNames}</p>
 
-        {/* 세션 메타 */}
         <div className="session-meta">
           <div className="session-meta__item">
             <div className="session-meta__value">{fmtDuration(durationSec)}</div>
@@ -135,6 +133,20 @@ export default function SessionReport() {
                   <span className="report-item__count">{item.count}회</span>
                 </div>
               ))
+            )}
+
+            {nextGuidance.length > 0 && (
+              <>
+                <p className="report-section-title">다음 세션 가이드</p>
+                <div className="next-guidance">
+                  {nextGuidance.map((item, i) => (
+                    <div className="next-guidance__item" key={i}>
+                      <span className="next-guidance__index">{i + 1}</span>
+                      <span>{item}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
             )}
           </>
         )}

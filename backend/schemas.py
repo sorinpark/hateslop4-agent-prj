@@ -72,7 +72,7 @@ class FeedbackMessage(BaseModel):
     type: str                      # "observation"(관찰) | "suggestion"(제안)
     text: str
     area: str | None = None
-    evidence: list[str] = []       # 근거가 된 feature 키들
+    evidence: list[str] = []       # 근거가 된 feature 키들 또는 guidance id
     note_tag: str | None = None    # 제안(suggestion)에만: "참고 정보입니다"
 
 
@@ -81,6 +81,8 @@ class FeedbackResponse(BaseModel):
     window_end_s: float
     messages: list[FeedbackMessage]
     guardrail_passed: bool = True  # 확신형 표현 후처리 통과 여부
+    # Agentic V2 디버깅/시연용: 어떤 Tool/분기/검증 경로를 거쳤는지 보여준다.
+    agent_trace: list[str] = []
 
 
 # ── 계약 ④ 세션 리포트 요약 (backend/report -> frontend, 세션 종료 후 1회) ───
@@ -93,3 +95,4 @@ class ReportSummary(BaseModel):
     session_id: str
     summary: str                     # 세션 총평 (한두 문장)
     items: list[ReportSummaryItem]    # 빈도순 정리된 패턴 목록
+    next_guidance: list[str] = []      # 다음 세션에서 관찰할 포인트/계획

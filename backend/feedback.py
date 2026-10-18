@@ -1,19 +1,18 @@
 """실시간 피드백 생성 - 특징 요약(FeatureSummary) + 관찰 프로필 -> LLM -> FeedbackResponse.
 
-team_plan.md Phase 2 ②. profile.py와 동일한 설계 원칙(기획.md 10번)을 따른다:
+기본 진입점 create_feedback()은 agentic-v2 경로를 우선 사용한다. Agent 경로는
+LangGraph 기반 상태/Tool/RAG/검증 흐름을 거치며, 의존성이나 LLM 호출 문제로
+실패하면 기존 단일 LLM 호출 baseline으로 자동 fallback한다.
+
+baseline 설계 원칙:
   - '위험/진단' 단어를 쓰지 않는다(패턴 관찰 톤).
   - 제안(suggestion)은 '참고 정보'임을 note_tag로 명시한다.
   - evidence는 실제로 features에 존재하는 키만 인용한다.
 
-LLM에는 messages(관찰/제안 목록)만 생성시키고, session_id / window_end_s는
-코드가 summary에서 그대로 채운다(LLM이 바꾸면 안 되는 값).
-
-가드레일 후처리(기획.md 전환7): 프롬프트 지시만으로는 확신형 표현("~하세요",
-"위험합니다") 유출을 보장할 수 없으므로, 실제 출력 텍스트를 정규식으로 한 번 더
-점검해서 guardrail_passed를 판정한다.
-
 구조화 출력: google-genai의 response_schema로 형식을 강제 -> FeedbackMessage로 검증.
 """
+import logging
+import os
 import re
 
 from pydantic import BaseModel
@@ -21,6 +20,8 @@ from google.genai import types
 
 from schemas import ObservationProfile, FeatureSummary, FeedbackMessage, FeedbackResponse
 from llm import generate
+
+logger = logging.getLogger(__name__)
 
 SYSTEM_INSTRUCTION = (
     "너는 운동 중 실시간으로 관찰 피드백을 만드는 도우미야. "
@@ -45,7 +46,6 @@ SYSTEM_INSTRUCTION = (
 )
 
 
-# ── LLM이 생성할 부분만 담는 작은 스키마 (response_schema 용) ──────────────
 class _FeedbackMessageOut(BaseModel):
     type: str  # observation | suggestion
     text: str
@@ -59,39 +59,33 @@ class _FeedbackDraft(BaseModel):
     messages: list[_FeedbackMessageOut]
 
 
-def _build_prompt(profile: ObservationProfile, summary: FeatureSummary) -> str:
-    lines = ["다음 관찰 프로필과 방금 관찰된 동작 특징을 바탕으로 피드백을 만들어줘.", ""]
-
-    lines.append("[관찰 프로필]")
-    for fa in profile.focus_areas:
-        lines.append(f"- {fa.area} ({fa.category}): {fa.reason}")
-    if profile.watch_patterns:
-        lines.append(f"- 주의 패턴: {[p.value for p in profile.watch_patterns]}")
-    lines.append("")
-
-    lines.append("[방금 관찰된 동작 특징]")
-    lines.append(f"- 운동: {summary.exercise}")
-    # hold_seconds가 있으면(mode="hold" 카테고리 - 플랭크/브릿지 등 유지형) rep_count는
-    # 항상 0이라 의미가 없으므로 유지 시간으로 대신 알려준다.
-    if summary.window.hold_seconds is not None:
-        progress = f"유지 {summary.window.hold_seconds:.1f}초"
-    else:
-        progress = f"반복 {summary.window.rep_count}회"
-    lines.append(
-        f"- 구간: {summary.window.start_s:.1f}s ~ {summary.window.end_s:.1f}s ({progress})"
-    )
-    lines.append(f"- features: {summary.features}")
-
-    return "\n".join(lines)
-
-
 def create_feedback(
     profile: ObservationProfile, summary: FeatureSummary
 ) -> FeedbackResponse:
-    """관찰 프로필 + 특징 요약 -> Gemini 호출 -> FeedbackResponse.
+    """관찰 프로필 + 특징 요약 -> FeedbackResponse.
 
-    LLM 호출이 실패하거나 형식이 어긋나면 예외를 그대로 올린다(상위에서 처리).
-    카메라 가드(confidence.below_threshold) 체크는 호출하는 쪽(main.py)의 책임.
+    기본값은 Agentic V2를 사용한다. 데모 중 LangGraph 의존성, DB 히스토리 조회,
+    LLM 호출 등의 문제가 생기면 baseline으로 내려가서 실시간 루프가 끊기지 않게 한다.
+    USE_AGENTIC_FEEDBACK=0 으로 두면 기존 baseline만 실행할 수 있다.
+    """
+    use_agentic = os.environ.get("USE_AGENTIC_FEEDBACK", "1") != "0"
+    if use_agentic:
+        try:
+            from agentic_feedback import create_agentic_feedback
+
+            return create_agentic_feedback(profile, summary)
+        except Exception:
+            logger.exception("agentic feedback failed; falling back to baseline")
+
+    return create_baseline_feedback(profile, summary)
+
+
+def create_baseline_feedback(
+    profile: ObservationProfile, summary: FeatureSummary
+) -> FeedbackResponse:
+    """기존 단일 LLM 호출 baseline.
+
+    Agentic V2와 비교하기 위해 별도 함수로 보존한다.
     """
     resp = generate(
         contents=_build_prompt(profile, summary),
@@ -102,7 +96,6 @@ def create_feedback(
         ),
     )
 
-    # response.parsed: response_schema(_FeedbackDraft)로 파싱된 객체
     draft: _FeedbackDraft = resp.parsed
 
     messages = [
@@ -121,7 +114,32 @@ def create_feedback(
         window_end_s=summary.window.end_s,
         messages=messages,
         guardrail_passed=_check_guardrail(messages),
+        agent_trace=["baseline:single_llm_call"],
     )
+
+
+def _build_prompt(profile: ObservationProfile, summary: FeatureSummary) -> str:
+    lines = ["다음 관찰 프로필과 방금 관찰된 동작 특징을 바탕으로 피드백을 만들어줘.", ""]
+
+    lines.append("[관찰 프로필]")
+    for fa in profile.focus_areas:
+        lines.append(f"- {fa.area} ({fa.category}): {fa.reason}")
+    if profile.watch_patterns:
+        lines.append(f"- 주의 패턴: {[p.value for p in profile.watch_patterns]}")
+    lines.append("")
+
+    lines.append("[방금 관찰된 동작 특징]")
+    lines.append(f"- 운동: {summary.exercise}")
+    if summary.window.hold_seconds is not None:
+        progress = f"유지 {summary.window.hold_seconds:.1f}초"
+    else:
+        progress = f"반복 {summary.window.rep_count}회"
+    lines.append(
+        f"- 구간: {summary.window.start_s:.1f}s ~ {summary.window.end_s:.1f}s ({progress})"
+    )
+    lines.append(f"- features: {summary.features}")
+
+    return "\n".join(lines)
 
 
 def _norm_type(value: str) -> str:
@@ -130,15 +148,13 @@ def _norm_type(value: str) -> str:
     return v if v in {"observation", "suggestion"} else "observation"
 
 
-# ── 가드레일 후처리 (기획.md 전환7) ──────────────────────────────────────
-# 프롬프트에서 이미 금지했지만, 실제 출력에 새는지 텍스트 레벨에서 한 번 더 점검.
 _BANNED_PATTERNS = [
-    re.compile(r"위험"),          # "위험합니다" 등 단정형 위험 표현
+    re.compile(r"위험"),
     re.compile(r"진단"),
     re.compile(r"손상"),
-    re.compile(r"세요"),          # 명령형 어미 전체("하세요","넓히세요","바꾸세요" 등)
+    re.compile(r"세요"),
     re.compile(r"십시오"),
-    re.compile(r"해야\s?합니다"),  # 확신형 지시
+    re.compile(r"해야\s?합니다"),
     re.compile(r"해야\s?해요"),
 ]
 
@@ -153,17 +169,15 @@ def _check_guardrail(messages: list[FeedbackMessage]) -> bool:
 
 
 if __name__ == "__main__":
-    # Windows 콘솔(cp949)에서도 한글이 깨지지 않도록 출력 인코딩을 UTF-8로.
     import sys
 
     try:
         sys.stdout.reconfigure(encoding="utf-8")
-    except Exception:  # noqa: BLE001 - 재설정 불가 환경이면 그냥 진행
+    except Exception:  # noqa: BLE001
         pass
 
     from schemas import InjuryInput, FocusArea, Pattern, Window, Confidence
 
-    # 목(mock) 데이터: 온보딩/비전 팀 결과물이 없어도 이 파일만으로 바로 확인 가능.
     _profile = ObservationProfile(
         user_id="u_demo",
         injuries=[InjuryInput(part="발목", side="right", condition="염좌", discomfort=3)],
@@ -174,16 +188,17 @@ if __name__ == "__main__":
         session_id="s_demo",
         exercise="squat",
         window=Window(start_s=0.0, end_s=8.0, rep_count=4),
-        features={"load_shift": 0.62, "lr_angle_diff.ankle": 11.4},
+        features={"load_shift": {"trunk_lean_deg": 6.2, "side_bias": "right"}, "lr_angle_diff": {"ankle": 11.4}},
         confidence=Confidence(overall=0.9, interp_ratio=0.1, below_threshold=False),
     )
 
     try:
         result = create_feedback(_profile, _summary)
         print(f"[feedback] guardrail_passed: {result.guardrail_passed}")
+        print(f"[feedback] trace: {result.agent_trace}")
         for msg in result.messages:
             print(f"[feedback] ({msg.type}) {msg.area or '-'}: {msg.text}")
             print(f"           evidence={msg.evidence} note_tag={msg.note_tag}")
-    except Exception as e:  # noqa: BLE001 - 연결 확인 단계라 모든 예외를 사용자에게 보여줌
+    except Exception as e:  # noqa: BLE001
         print(f"[feedback] 실패: {type(e).__name__}: {e}")
         raise SystemExit(1)

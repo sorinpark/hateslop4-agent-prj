@@ -123,6 +123,7 @@ def feedback(profile: ObservationProfile, summary: FeatureSummary):
             window_end_s=summary.window.end_s,
             messages=[],
             guardrail_passed=True,
+            agent_trace=["route:skip:low_confidence"],
         )
 
     try:
@@ -252,6 +253,7 @@ def get_session_report(session_id: str):
             session_id=session_id,
             summary="이번 세션에서는 특별히 관찰된 패턴이 없었어요.",
             items=[],
+            next_guidance=["다음 세션에서는 초반과 후반의 움직임 차이가 있는지 먼저 관찰해보면 좋을 것 같아요."],
         )
 
     try:
@@ -329,6 +331,7 @@ async def _handle_frame(websocket: WebSocket, session_id: str, state: dict, data
             window_end_s=summary.window.end_s,
             messages=[],
             guardrail_passed=True,
+            agent_trace=["route:skip:low_confidence"],
         )
     else:
         try:
@@ -346,6 +349,7 @@ async def _handle_frame(websocket: WebSocket, session_id: str, state: dict, data
         "window_ready": True,
         "messages": [m.model_dump() for m in response.messages],
         "guardrail_passed": response.guardrail_passed,
+        "agent_trace": response.agent_trace,
         "rep_count": summary.window.rep_count,
         "hold_seconds": summary.window.hold_seconds,
         "mode": state["mode"],
